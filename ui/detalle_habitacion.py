@@ -14,12 +14,9 @@ class DetalleHabitacionWidget(QWidget):
         self.al_volver_callback = al_volver_callback
         self.habitacion = {}
 
-        # Layout Principal del Widget Base
         layout_base = QVBoxLayout(self)
 
-        # -------------------------------------------------------------
-        # BARRA SUPERIOR FIJA
-        # -------------------------------------------------------------
+        #barra superior 
         barra_menu_container = QWidget()
         layout_menu = QHBoxLayout(barra_menu_container)
 
@@ -46,29 +43,29 @@ class DetalleHabitacionWidget(QWidget):
         layout_contenido.setContentsMargins(30, 15, 30, 20)
         layout_contenido.setSpacing(15)
 
-        # 1. TÍTULO PRINCIPAL
+        #titulo 
         self.lbl_titulo = QLabel()
         self.lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_contenido.addWidget(self.lbl_titulo)
 
-        # 2. IMAGEN DESTACADA
+        #foto
         self.lbl_foto = QLabel()
         self.lbl_foto.setFixedHeight(220)
         self.lbl_foto.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_contenido.addWidget(self.lbl_foto)
 
-        # 3. BLOQUE DE INFO
+        #info
         self.lbl_info = QLabel()
         self.lbl_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_contenido.addWidget(self.lbl_info)
 
-        # 4. DESCRIPCIÓN EXTENDIDA
+        #descripcion extendida 
         self.lbl_descripcion = QLabel()
         self.lbl_descripcion.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_contenido.addWidget(self.lbl_descripcion)
 
         # -------------------------------------------------------------
-        # 5. CONTENEDOR DE LA SECCIÓN DE RESERVA (Formulario + Botón)
+        # CONFIRMAR RESERVA (Visible solo para clientes)
         # -------------------------------------------------------------
         self.seccion_reserva = QWidget()
         layout_reserva = QVBoxLayout(self.seccion_reserva)

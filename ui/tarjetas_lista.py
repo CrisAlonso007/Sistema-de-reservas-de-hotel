@@ -8,6 +8,7 @@ from utils.stylesheets import TARJETAS_ESTILO
 class TarjetaHabitacion(QWidget):
     editar_solicitado = Signal(dict)
     detalles_solicitados = Signal(dict)
+    eliminar_solicitado = Signal(dict)
 
     def __init__(self, habitacion: dict, es_admin: bool = False):
         super().__init__()
@@ -63,6 +64,13 @@ class TarjetaHabitacion(QWidget):
             self.btn_editar.setCursor(Qt.ArrowCursor) 
             self.btn_editar.clicked.connect(lambda: self.editar_solicitado.emit(self.habitacion))
             layout_tarjeta.addWidget(self.btn_editar, alignment=Qt.AlignmentFlag.AlignVCenter)
+
+            self.btn_eliminar = QPushButton("Eliminar")
+            self.btn_eliminar.setFixedWidth(70)
+            self.btn_eliminar.clicked.connect(lambda: self.eliminar_solicitado.emit(self.habitacion))
+
+            layout_tarjeta.addWidget(self.btn_editar, alignment=Qt.AlignmentFlag.AlignVCenter)
+            layout_tarjeta.addWidget(self.btn_eliminar, alignment=Qt.AlignmentFlag.AlignVCenter)
 
     def mousePressEvent(self, event):
         """Detecta el clic en cualquier parte del widget de la tarjeta."""

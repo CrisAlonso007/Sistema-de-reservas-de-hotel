@@ -3,10 +3,14 @@ import sys
 from PySide6.QtWidgets import QApplication
 from ui.registro_window import RegistroUsuario
 from ui.main_window import VentanaPrincipal
+from services.habitacion_service import HabitacionService
 
 class AppController:
     def __init__(self):
         self.app = QApplication(sys.argv)
+
+        self.servicio_habitaciones = HabitacionService()
+        
         self.login_window = RegistroUsuario()
         self.main_window = None
 
@@ -17,7 +21,10 @@ class AppController:
         sys.exit(self.app.exec())
 
     def mostrar_ventana_principal(self, usuario_actual: dict):
-        self.main_window = VentanaPrincipal(usuario_actual=usuario_actual)
+        self.main_window = VentanaPrincipal(
+            usuario_actual=usuario_actual, 
+            habitacion_service=self.servicio_habitaciones
+        )
         
         self.main_window.btn_usuario.menu().actions()[0].triggered.connect(self.volver_al_login)
         self.main_window.show()

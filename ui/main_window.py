@@ -1,9 +1,8 @@
 # ui/main_window.py
 import os
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QListWidget, QListWidgetItem, QPushButton, QStackedWidget,
-    QMenu
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, 
+    QListWidgetItem, QPushButton, QStackedWidget, QMenu, QMessageBox
 )
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtCore import QSize, Qt
@@ -14,46 +13,36 @@ from services.habitacion_service import HabitacionService
 from ui.registro_window import RegistroUsuario
 
 class VentanaPrincipal(QMainWindow):
-    def __init__(self, usuario_actual: dict = None):
+    def __init__(self, usuario_actual: dict = None, habitacion_service: HabitacionService = None):
         super().__init__()
         self.setWindowTitle("Sistema de Reservas de Hotel")
         self.resize(850, 600)
 
         self.usuario_actual = usuario_actual or {"nombre": "Invitado", "rol": "user"}
-        self.habitacion_service = HabitacionService()
+        self.habitacion_service = habitacion_service or HabitacionService()
         self.ventana_admin = None
 
         # -------------------------------------------------------------
-        # 1. BOTÓN DE USUARIO (Con Icono, Saludo y Menú Desplegable)
+        # BOTÓN DE USUARIO
         # -------------------------------------------------------------
         nombre_usuario = self.usuario_actual.get("nombre", "Invitado")
         
-        # Crear el botón con el formato "Hola, [nombre]"
+        #Formato del boton Hola, Nombre_usuario
         self.btn_usuario = QPushButton(f"Hola, {nombre_usuario}")
         self.btn_usuario.setCursor(Qt.PointingHandCursor)
         self.btn_usuario.setFixedHeight(38)
 
-        default_avatar = os.path.join("recursos", "avatar.png") # Cambia por tu imagen si tienes una
-        if os.path.exists(default_avatar):
-            self.btn_usuario.setIcon(QIcon(default_avatar))
-            self.btn_usuario.setIconSize(QSize(28, 28))
-
         # Menú desplegable para el botón
         menu_usuario = QMenu(self)
         
-        # Acción dentro del menú
-        accion_cerrar_sesion = QAction("🚪 Cerrar Sesión", self)
+        accion_cerrar_sesion = QAction("Cerrar Sesión", self)
         accion_cerrar_sesion.triggered.connect(self._cerrar_sesion)
         
         menu_usuario.addAction(accion_cerrar_sesion)
         self.btn_usuario.setMenu(menu_usuario)
 
-        # -------------------------------------------------------------
-        # 2. VISTAS Y LAYOUTS
-        # -------------------------------------------------------------
         self.stack = QStackedWidget()
 
-        # VISTA 1: CATÁLOGO
         self.vista_catalogo = QWidget()
         layout_principal = QVBoxLayout(self.vista_catalogo)
         
@@ -88,11 +77,8 @@ class VentanaPrincipal(QMainWindow):
         self.actualizar_catalogo()
 
     def _cerrar_sesion(self):
-        """Cierra la ventana actual."""
+        """Cierra la ventana principal"""
         self.close()
-
-        self.login_window = RegistroUsuario()
-        self.login_window.show()
 
     def _abrir_publicar_habitacion(self):
         self.ventana_admin = AdminWindow(
@@ -108,6 +94,18 @@ class VentanaPrincipal(QMainWindow):
             habitacion_a_editar=habitacion
         )
         self.ventana_admin.show()
+
+    def _eliminar_habitacion(self, habitacion: dict):
+        confirmacion = QMessageBox.question(
+            self,
+            "Confirmar eliminación",
+            f"¿Estás seguro de que deseas eliminar la habitación {habitacion.get('numero')}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if confirmacion == QMessageBox.StandardButton.Yes:
+            self.habitacion_service.eliminar_habitacion(habitacion.get("numero"))
+            self.actualizar_catalogo()
 
     def _mostrar_detalles(self, habitacion: dict):
         self.vista_detalle.cargar_datos(habitacion)
@@ -132,6 +130,6 @@ class VentanaPrincipal(QMainWindow):
 
             if es_admin:
                 widget_tarjeta.editar_solicitado.connect(self._abrir_editar_habitacion)
-
+                widget_tarjeta.eliminar_solicitado.connect(self._eliminar_habitacion)
             self.lista_habitaciones.addItem(item)
             self.lista_habitaciones.setItemWidget(item, widget_tarjeta)

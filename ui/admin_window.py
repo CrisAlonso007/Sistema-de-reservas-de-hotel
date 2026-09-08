@@ -29,7 +29,7 @@ class AdminWindow(QWidget):
         layout_grid.setHorizontalSpacing(15)
         layout_grid.setVerticalSpacing(10)
 
-        # Selector de Imagen
+        #Selector de Imagen
         self.lbl_imagen = QLabel("seleccionar\nimagen")
         self.lbl_imagen.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_imagen.setFixedSize(220, 180)
@@ -39,18 +39,18 @@ class AdminWindow(QWidget):
         
         layout_grid.addWidget(self.lbl_imagen, 0, 0, 5, 1)
 
-        # Campos de Entrada
+        #Campos de Entrada
         self.txt_nombre = QLineEdit()
         self.txt_nombre.setPlaceholderText("Nombre de la habitación")
 
         self.txt_numero = QLineEdit()
         self.txt_numero.setPlaceholderText("Ej: 101, 202, 303...")
 
-        # COMBOBOX para Tipo de Habitación
+        #Combobox para Tipo de Habitación
         self.cmb_tipo = QComboBox()
         self.cmb_tipo.addItems(["Simple", "Doble", "Matrimonial", "Suite", "Deluxe", "Presidencial"])
 
-        # DOUBLE SPINBOX para el Precio (Selector con Flechas)
+        #Spinbox para Precio 
         self.txt_precio = QDoubleSpinBox()
         self.txt_precio.setRange(0.00, 10000.00)
         self.txt_precio.setDecimals(2)
@@ -110,7 +110,6 @@ class AdminWindow(QWidget):
         if index >= 0:
             self.cmb_tipo.setCurrentIndex(index)
 
-        # Cargar precio numérico en el QDoubleSpinBox
         try:
             precio_float = float(hab.get("precio", 0.0))
             self.txt_precio.setValue(precio_float)
@@ -120,6 +119,7 @@ class AdminWindow(QWidget):
         self.txt_capacidad.setText(str(hab.get("capacidad", "")))
         self.txt_descripcion.setPlainText(hab.get("descripcion", ""))
 
+        #Carga la imagen si existe 
         ruta = hab.get("imagen", "")
         if ruta and os.path.exists(ruta):
             self.ruta_imagen = ruta

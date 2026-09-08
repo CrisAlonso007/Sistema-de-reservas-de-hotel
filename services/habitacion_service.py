@@ -2,10 +2,7 @@ import os
 
 class HabitacionService:
     def __init__(self):
-        # 1. Obtenemos la ruta raíz del proyecto (subiendo un nivel desde 'services')
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
-        # 2. Construimos la ruta dinámica hacia la carpeta de recursos
         ruta_foto_defecto = os.path.join(base_dir, "recursos", "habitacion1.jpg")
 
         self.habitaciones = [
@@ -45,3 +42,8 @@ class HabitacionService:
         }
         self.habitaciones.append(nueva)
         return True
+
+    def eliminar_habitacion(self, numero: str) -> bool:
+        longitud_inicial = len(self.habitaciones)
+        self.habitaciones = [h for h in self.habitaciones if str(h.get("numero")) != str(numero)]
+        return len(self.habitaciones) < longitud_inicial

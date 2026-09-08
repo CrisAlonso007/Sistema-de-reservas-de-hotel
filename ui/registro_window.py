@@ -1,12 +1,10 @@
 # ui/registro_window.py
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QLineEdit, QPushButton, QTabWidget, QMessageBox, QComboBox
+    QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QTabWidget, QMessageBox, QComboBox
 )
 from PySide6.QtCore import Qt, Signal
 
 class RegistroUsuario(QWidget):
-    # Emitimos un diccionario con el nombre de usuario y su rol ('admin' o 'user')
     login_exitoso = Signal(dict)
 
     def __init__(self):
@@ -14,7 +12,6 @@ class RegistroUsuario(QWidget):
         self.setWindowTitle("Registro e Inicio de Sesión - Sistema de Reservas")
         self.setFixedSize(360, 460)
 
-        # Usuarios de prueba en memoria (simulando la base de datos)
         self.usuarios_db = {
             "admin": {"pass": "1234", "rol": "admin"},
             "user": {"pass": "1234", "rol": "user"}
@@ -35,7 +32,7 @@ class RegistroUsuario(QWidget):
         layout.setSpacing(15)
         layout.setContentsMargins(15, 20, 15, 20)
 
-        lbl_titulo = QLabel("LOGIN")
+        lbl_titulo = QLabel("INICIAR SESION")
         lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         font = lbl_titulo.font()
         font.setPointSize(16)
@@ -43,13 +40,13 @@ class RegistroUsuario(QWidget):
         lbl_titulo.setFont(font)
 
         self.txt_login_user = QLineEdit()
-        self.txt_login_user.setPlaceholderText("Username")
+        self.txt_login_user.setPlaceholderText("Nombre de usuario")
 
         self.txt_login_pass = QLineEdit()
-        self.txt_login_pass.setPlaceholderText("Password")
+        self.txt_login_pass.setPlaceholderText("Contraseña")
         self.txt_login_pass.setEchoMode(QLineEdit.EchoMode.Password)
 
-        btn_signin = QPushButton("SIGN IN")
+        btn_signin = QPushButton("Enter")
         btn_signin.setFixedHeight(35)
         btn_signin.clicked.connect(self._procesar_login)
 
@@ -69,7 +66,7 @@ class RegistroUsuario(QWidget):
         layout.setSpacing(12)
         layout.setContentsMargins(15, 15, 15, 15)
 
-        lbl_titulo = QLabel("REGISTER")
+        lbl_titulo = QLabel("CREAR CUENTA")
         lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         font = lbl_titulo.font()
         font.setPointSize(16)
@@ -77,26 +74,22 @@ class RegistroUsuario(QWidget):
         lbl_titulo.setFont(font)
 
         self.txt_reg_user = QLineEdit()
-        self.txt_reg_user.setPlaceholderText("Username")
-
-        self.txt_reg_email = QLineEdit()
-        self.txt_reg_email.setPlaceholderText("Email")
+        self.txt_reg_user.setPlaceholderText("Nombre de usuario")
 
         self.txt_reg_pass = QLineEdit()
-        self.txt_reg_pass.setPlaceholderText("Password")
+        self.txt_reg_pass.setPlaceholderText("contraseña")
         self.txt_reg_pass.setEchoMode(QLineEdit.EchoMode.Password)
 
         # Combo box para seleccionar el tipo de cuenta
         self.cmb_rol = QComboBox()
         self.cmb_rol.addItems(["user", "Administrador"])
 
-        btn_register = QPushButton("CREATE ACCOUNT")
+        btn_register = QPushButton("Enter")
         btn_register.setFixedHeight(35)
         btn_register.clicked.connect(self._procesar_registro)
 
         layout.addWidget(lbl_titulo)
         layout.addWidget(self.txt_reg_user)
-        layout.addWidget(self.txt_reg_email)
         layout.addWidget(self.txt_reg_pass)
         layout.addWidget(QLabel("Tipo de cuenta:"))
         layout.addWidget(self.cmb_rol)
@@ -127,13 +120,8 @@ class RegistroUsuario(QWidget):
 
     def _procesar_registro(self):
         usuario = self.txt_reg_user.text().strip()
-        email = self.txt_reg_email.text().strip()
         password = self.txt_reg_pass.text().strip()
         rol = "admin" if self.cmb_rol.currentText() == "Administrador" else "user"
-
-        if not (usuario and email and password):
-            QMessageBox.warning(self, "Error", "Todos los campos son obligatorios.")
-            return
 
         if usuario in self.usuarios_db:
             QMessageBox.warning(self, "Error", "El usuario ya existe.")
