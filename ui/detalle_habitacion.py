@@ -4,16 +4,10 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, 
     QLineEdit, QPushButton, QMessageBox, QScrollArea
 )
-<<<<<<< HEAD
 from PySide6.QtGui import QPixmap, QIntValidator
 from PySide6.QtCore import Qt
 from utils.validaciones import es_texto_valido, es_identificacion_valida, es_noches_valida
 from utils.stylesheets import ESTILO_CAMPO_VALIDO, ESTILO_CAMPO_INVALIDO
-=======
-from PySide6.QtGui import QPixmap
-from PySide6.QtCore import Qt
-from utils.validaciones import es_texto_valido
->>>>>>> 4f407e8c6312a48d30092630981c73c4460f90fa
 
 class DetalleHabitacionWidget(QWidget):
     def __init__(self, al_volver_callback):
@@ -90,7 +84,6 @@ class DetalleHabitacionWidget(QWidget):
         self.txt_cliente.setPlaceholderText("Nombre completo")
         self.txt_cliente.setFixedHeight(30)
         self.txt_cliente.textChanged.connect(self._validar_cliente)
-        self.txt_cliente.setFixedHeight(30)  
 
         self.txt_identificacion = QLineEdit()
         self.txt_identificacion.setPlaceholderText("N° Cédula o Pasaporte")
@@ -189,11 +182,6 @@ class DetalleHabitacionWidget(QWidget):
             and es_identificacion_valida(cedula)
             and es_noches_valida(noches)
         ):
-            cliente = self.txt_cliente.text()
-            cedula = self.txt_identificacion.text()
-            noches = self.txt_noches.text()
-
-        if not (es_texto_valido(cliente) and es_texto_valido(cedula) and noches.isdigit() and int(noches) > 0):
             QMessageBox.warning(self, "Datos Incompletos", "Por favor ingresa un nombre, cédula y número de noches válido.")
             return
 
@@ -201,8 +189,6 @@ class DetalleHabitacionWidget(QWidget):
         QMessageBox.information(
             self,
             "Reserva Exitosa",
-            self, 
-            "Reserva Exitosa", 
             f"¡Reserva confirmada para {cliente}!\n\n"
             f"Habitación: {self.habitacion.get('nombre')}\n"
             f"Total a pagar ({noches} noches): ${total:.2f}"

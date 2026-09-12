@@ -69,7 +69,6 @@ class TarjetaHabitacion(QWidget):
             self.btn_eliminar.setFixedWidth(70)
             self.btn_eliminar.clicked.connect(lambda: self.eliminar_solicitado.emit(self.habitacion))
 
-            layout_tarjeta.addWidget(self.btn_editar, alignment=Qt.AlignmentFlag.AlignVCenter)
             layout_tarjeta.addWidget(self.btn_eliminar, alignment=Qt.AlignmentFlag.AlignVCenter)
 
     def mousePressEvent(self, event):
