@@ -93,6 +93,7 @@ class RegistroUsuario(QWidget):
         self.txt_reg_pass = QLineEdit()
         self.txt_reg_pass.setPlaceholderText("contraseña")
         self.txt_reg_pass.setEchoMode(QLineEdit.EchoMode.Password)
+
         self.txt_reg_pass.setValidator(QRegularExpressionValidator(QRegularExpression(r"[^\n]{0,30}")))
         self.txt_reg_pass.textChanged.connect(self._validar_registro_pass)
 
@@ -136,6 +137,8 @@ class RegistroUsuario(QWidget):
 
         if not (es_usuario_valido(usuario) and es_password_valido(password)):
             QMessageBox.warning(self, "Error", "Ingresa un usuario válido y una contraseña de al menos 4 caracteres.")
+        if not usuario or not password:
+            QMessageBox.warning(self, "Error", "Por favor ingresa usuario y contraseña.")
             return
 
         # Validación de credenciales
