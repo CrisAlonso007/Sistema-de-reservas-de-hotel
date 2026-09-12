@@ -72,28 +72,19 @@ def es_noches_valida(valor: str) -> bool:
 
     return cantidad > 0
 
-def es_texto_valido(texto: str) -> bool:
+
+def es_precio_valido(valor: str | float | int) -> bool:
     """
-    Verifica que la cadena no sea None, no esté vacía 
-    y no contenga únicamente espacios en blanco.
+    Verifica que el valor sea un número positivo y menor o igual a 10000.
+    Acepta strings con prefijo '$' y espacios.
     """
-    if texto is None:
+    if valor is None:
         return False
-    return len(texto.strip()) > 0
 
-
-def es_precio_valido(valor: str) -> bool:
-    """
-    Verifica que el valor sea un número positivo y mayor a cero.
-    Limpiando prefijos como el símbolo '$'.
-    """
     try:
-        valor_limpio = str(valor).replace("$", "").strip()
+        valor_limpio = str(valor).replace("$", "").replace(",", "").strip()
         precio = float(valor_limpio)
-        return 0 < precio <= 10000
-        # Elimina espacios y el signo de dólar si vienen en el string
-        valor_limpio = str(valor).replace("$", "").strip()
-        precio = float(valor_limpio)
-        return precio > 0
-    except (ValueError, TypeError):
+    except (TypeError, ValueError):
         return False
+
+    return 0 < precio <= 10000
