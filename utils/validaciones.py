@@ -34,25 +34,6 @@ def es_password_valido(password: str) -> bool:
     return not any(caracter.isspace() for caracter in password)
 
 
-def es_numero_habitacion_valido(valor: str) -> bool:
-    """Valida que el número de habitación sea numérico y positivo."""
-    if not es_texto_valido(valor, longitud_minima=1, longitud_maxima=6):
-        return False
-    return bool(re.fullmatch(r"\d{1,6}", str(valor).strip()))
-
-
-def es_capacidad_valida(valor: str) -> bool:
-    """Valida que la capacidad contenga un número entero positivo."""
-    if not es_texto_valido(valor):
-        return False
-
-    coincidencia = re.search(r"\d+", str(valor).strip())
-    if not coincidencia:
-        return False
-
-    return int(coincidencia.group()) > 0
-
-
 def es_identificacion_valida(valor: str) -> bool:
     """Valida una identificación con formato alfanumérico simple."""
     if not es_texto_valido(valor, longitud_minima=5, longitud_maxima=20):

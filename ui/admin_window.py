@@ -1,12 +1,13 @@
 # ui/admin_window.py
 import os
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, 
-    QTextEdit, QPushButton, QMessageBox, QLabel, QFileDialog, QComboBox, QDoubleSpinBox
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit,
+    QTextEdit, QPushButton, QMessageBox, QLabel, QFileDialog, QComboBox,
+    QDoubleSpinBox, QSpinBox
 )
-from PySide6.QtGui import QPixmap, QRegularExpressionValidator
-from PySide6.QtCore import Qt, QRegularExpression
-from utils.validaciones import es_texto_valido, es_precio_valido, es_numero_habitacion_valido, es_capacidad_valida
+from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Qt
+from utils.validaciones import es_texto_valido, es_precio_valido
 from utils.stylesheets import (
     ESTILO_SELECTOR_IMAGEN,
     ESTILO_CAMPO_VALIDO,
@@ -14,6 +15,21 @@ from utils.stylesheets import (
     ESTILO_PRECIO_VALIDO,
     ESTILO_PRECIO_INVALIDO,
 )
+
+
+class SpinBoxNumeroHabitacion(QSpinBox):
+    def textFromValue(self, value: int) -> str:
+        return f"{value:03d}"
+
+
+class SpinBoxCapacidad(QSpinBox):
+    def textFromValue(self, value: int) -> str:
+        return f"{value} Persona" if value == 1 else f"{value} Personas"
+
+    def valueFromText(self, text: str) -> int:
+        digits = "".join(caracter for caracter in text if caracter.isdigit())
+        return int(digits) if digits else self.minimum()
+
 
 class AdminWindow(QWidget):
     def __init__(self, habitacion_service, al_actualizar_callback=None, habitacion_a_editar: dict = None):
@@ -50,10 +66,11 @@ class AdminWindow(QWidget):
         self.txt_nombre.setPlaceholderText("Nombre de la habitación")
         self.txt_nombre.textChanged.connect(self._validar_nombre)
 
-        self.txt_numero = QLineEdit()
-        self.txt_numero.setPlaceholderText("Ej: 101, 202, 303...")
-        self.txt_numero.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{0,6}")))
-        self.txt_numero.textChanged.connect(self._validar_numero)
+        self.txt_numero = SpinBoxNumeroHabitacion()
+        self.txt_numero.setRange(1, 999)
+        self.txt_numero.setValue(1)
+        self.txt_numero.setFixedHeight(30)
+        self.txt_numero.setButtonSymbols(QSpinBox.ButtonSymbols.UpDownArrows)
 
         #Combobox para Tipo de Habitación
         self.cmb_tipo = QComboBox()
@@ -68,10 +85,11 @@ class AdminWindow(QWidget):
         self.txt_precio.setFixedHeight(30)
         self.txt_precio.valueChanged.connect(self._validar_precio)
 
-        self.txt_capacidad = QLineEdit()
-        self.txt_capacidad.setPlaceholderText("Ej: 1 Persona, 2 Personas...")
-        self.txt_capacidad.setValidator(QRegularExpressionValidator(QRegularExpression(r"[0-9A-Za-zÁÉÍÓÚáéíóúÑñ\s]{0,30}")))
-        self.txt_capacidad.textChanged.connect(self._validar_capacidad)
+        self.txt_capacidad = SpinBoxCapacidad()
+        self.txt_capacidad.setRange(1, 100)
+        self.txt_capacidad.setValue(1)
+        self.txt_capacidad.setFixedHeight(30)
+        self.txt_capacidad.setButtonSymbols(QSpinBox.ButtonSymbols.UpDownArrows)
 
         layout_grid.addWidget(QLabel("Nombre:"), 0, 1)
         layout_grid.addWidget(self.txt_nombre, 0, 2)
@@ -128,14 +146,8 @@ class AdminWindow(QWidget):
     def _validar_nombre(self):
         self._aplicar_estilo_campo(self.txt_nombre, es_texto_valido(self.txt_nombre.text().strip(), longitud_minima=2))
 
-    def _validar_numero(self):
-        self._aplicar_estilo_campo(self.txt_numero, es_numero_habitacion_valido(self.txt_numero.text()))
-
     def _validar_precio(self):
         self._aplicar_estilo_precio(es_precio_valido(self.txt_precio.value()))
-
-    def _validar_capacidad(self):
-        self._aplicar_estilo_campo(self.txt_capacidad, es_capacidad_valida(self.txt_capacidad.text()))
 
     def _validar_descripcion(self):
         self._aplicar_estilo_campo(self.txt_descripcion, es_texto_valido(self.txt_descripcion.toPlainText(), longitud_minima=10))
@@ -143,7 +155,7 @@ class AdminWindow(QWidget):
     def _cargar_datos_existentes(self):
         hab = self.habitacion_a_editar
         self.txt_nombre.setText(hab.get("nombre", ""))
-        self.txt_numero.setText(str(hab.get("numero", "")))
+        self.txt_numero.setValue(int(hab.get("numero", 1)))
         
         # Seleccionar valor en el ComboBox
         tipo_hab = hab.get("tipo", "Simple")
@@ -157,12 +169,12 @@ class AdminWindow(QWidget):
         except (ValueError, TypeError):
             self.txt_precio.setValue(0.0)
 
-        self.txt_capacidad.setText(str(hab.get("capacidad", "")))
+        capacidad = str(hab.get("capacidad", "1"))
+        capacidad_numero = "".join(caracter for caracter in capacidad if caracter.isdigit())
+        self.txt_capacidad.setValue(int(capacidad_numero or 1))
         self.txt_descripcion.setPlainText(hab.get("descripcion", ""))
         self._validar_nombre()
-        self._validar_numero()
         self._validar_precio()
-        self._validar_capacidad()
         self._validar_descripcion()
 
         #Carga la imagen si existe 
@@ -192,17 +204,15 @@ class AdminWindow(QWidget):
 
     def _guardar_habitacion(self):
         nombre = self.txt_nombre.text().strip()
-        num = self.txt_numero.text().strip()
+        num = self.txt_numero.text()
         tipo = self.cmb_tipo.currentText()
         precio_val = self.txt_precio.value()
-        capacidad = self.txt_capacidad.text().strip()
+        capacidad = self.txt_capacidad.text()
         descripcion = self.txt_descripcion.toPlainText().strip()
 
         if not (
             es_texto_valido(nombre, longitud_minima=2)
-            and es_numero_habitacion_valido(num)
             and es_precio_valido(precio_val)
-            and es_capacidad_valida(capacidad)
             and es_texto_valido(descripcion, longitud_minima=10)
         ):
             QMessageBox.warning(
