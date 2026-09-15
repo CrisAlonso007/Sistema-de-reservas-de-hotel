@@ -155,7 +155,7 @@ class RegistroUsuario(QWidget):
     def _procesar_registro(self):
         usuario = self.txt_reg_user.text().strip()
         password = self.txt_reg_pass.text().strip()
-        rol = "admin" if self.cmb_rol.currentText() == "Administrador" else "user"
+        rol = "administrador" if self.cmb_rol.currentText() == "Administrador" else "user"
 
         if not (es_usuario_valido(usuario) and es_password_valido(password)):
             QMessageBox.warning(self, "Error", "El usuario debe tener entre 3 y 20 caracteres y la contraseña al menos 4 caracteres.")

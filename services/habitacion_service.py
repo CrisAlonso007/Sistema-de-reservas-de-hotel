@@ -1,49 +1,40 @@
 import os
+from DATABASE.registro import RegistroDAO
 
 class HabitacionService:
     def __init__(self):
+        self.dao = RegistroDAO()
+        
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        ruta_foto_defecto = os.path.join(base_dir, "recursos", "habitacion1.jpg")
+        self.ruta_foto_defecto = os.path.join(base_dir, "recursos", "habitacion1.jpg")
 
-        self.habitaciones = [
-            {
-                "nombre": "Suite Presidencial Vista al Mar",
-                "numero": "101",
-                "tipo": "Suite",
-                "precio": 150.00,
-                "capacidad": "2 Personas",
-                "descripcion": "Incluye cama King Size, jacuzzi privado, vista panorámica al mar y servicio a la habitación 24/7.",
-                "estado": "Disponible",
-                "imagen": ruta_foto_defecto  # <--- Ruta dinámica y portable
-            }
-        ]
     def obtener_todas(self) -> list[dict]:
-        return self.habitaciones
+        """Llama al DAO para traer las habitaciones y les asigna la imagen por defecto."""
+        habitaciones = self.dao.obtener_habitaciones()
+        
+        for hab in habitaciones:
+            if "imagen" not in hab or not hab["imagen"]:
+                hab["imagen"] = self.ruta_foto_defecto
+
+        return habitaciones
 
     def agregar_habitacion(
         self, 
         nombre: str, 
-        numero: str, 
+        numero: int, 
         tipo: str, 
         precio: float, 
         capacidad: str = "", 
-        descripcion: str = "", 
+        descripcion: str = "",
         imagen: str = ""
-    ) -> bool:
-        nueva = {
-            "nombre": nombre,
-            "numero": numero,
-            "tipo": tipo,
-            "precio": precio,
-            "capacidad": capacidad,
-            "descripcion": descripcion,
-            "estado": "Disponible",
-            "imagen": imagen
-        }
-        self.habitaciones.append(nueva)
-        return True
-
-    def eliminar_habitacion(self, numero: str) -> bool:
-        longitud_inicial = len(self.habitaciones)
-        self.habitaciones = [h for h in self.habitaciones if str(h.get("numero")) != str(numero)]
-        return len(self.habitaciones) < longitud_inicial
+    ) -> tuple[bool, str]:
+        """Guarda la habitación a través del DAO."""
+        exito, mensaje = self.dao.registrar_habitacion(
+            nombre=nombre,
+            no_habitacion=numero,
+            tipo=tipo,
+            precio=precio,
+            capacidad=capacidad,
+            descripcion=descripcion
+        )
+        return exito, mensaje
