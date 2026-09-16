@@ -136,6 +136,20 @@ class AdminWindow(QWidget):
         if self.habitacion_a_editar:
             self._cargar_datos_existentes()
 
+    @staticmethod
+    def _tipo_para_combo(tipo):
+        valor = str(tipo or "Simple").strip()
+        if valor == "Presencial":
+            return "Presidencial"
+        return valor
+
+    @staticmethod
+    def _tipo_para_bd(tipo):
+        valor = str(tipo or "Simple").strip()
+        if valor == "Presidencial":
+            return "Presencial"
+        return valor
+
     def _aplicar_estilo_campo(self, campo, valido: bool):
         if hasattr(campo, "setStyleSheet"):
             campo.setStyleSheet(ESTILO_CAMPO_VALIDO if valido else ESTILO_CAMPO_INVALIDO)
@@ -158,7 +172,7 @@ class AdminWindow(QWidget):
         self.txt_numero.setValue(int(hab.get("numero", 1)))
         
         # Seleccionar valor en el ComboBox
-        tipo_hab = hab.get("tipo", "Simple")
+        tipo_hab = self._tipo_para_combo(hab.get("tipo", "Simple"))
         index = self.cmb_tipo.findText(tipo_hab)
         if index >= 0:
             self.cmb_tipo.setCurrentIndex(index)
@@ -204,7 +218,7 @@ class AdminWindow(QWidget):
 
     def _guardar_habitacion(self):
         nombre = self.txt_nombre.text().strip()
-        num = self.txt_numero.text()
+        num = int(self.txt_numero.value())
         tipo = self.cmb_tipo.currentText()
         precio_val = self.txt_precio.value()
         capacidad = self.txt_capacidad.text()
@@ -222,28 +236,48 @@ class AdminWindow(QWidget):
             )
             return
 
+        tipo_normalizado = self._tipo_para_bd(tipo)
+
         if self.habitacion_a_editar:
-            self.habitacion_a_editar.update({
-                "nombre": nombre,
-                "numero": num,
-                "tipo": tipo,
-                "precio": precio_val,
-                "capacidad": capacidad,
-                "descripcion": descripcion,
-                "imagen": self.ruta_imagen
-            })
-            QMessageBox.information(self, "Éxito", "Habitación actualizada correctamente.")
-        else:
-            self.service.agregar_habitacion(
+            exito, mensaje = self.service.editar_habitacion(
+                habitacion_id=self.habitacion_a_editar.get("id"),
                 nombre=nombre,
                 numero=num,
-                tipo=tipo,
+                tipo=tipo_normalizado,
                 precio=precio_val,
                 capacidad=capacidad,
                 descripcion=descripcion,
                 imagen=self.ruta_imagen
             )
-            QMessageBox.information(self, "Éxito", "Habitación publicada correctamente.")
+            if not exito:
+                QMessageBox.warning(self, "Error", mensaje)
+                return
+
+            self.habitacion_a_editar.update({
+                "id": self.habitacion_a_editar.get("id"),
+                "nombre": nombre,
+                "numero": num,
+                "tipo": tipo_normalizado,
+                "precio": precio_val,
+                "capacidad": capacidad,
+                "descripcion": descripcion,
+                "imagen": self.ruta_imagen or self.habitacion_a_editar.get("imagen", "")
+            })
+            QMessageBox.information(self, "Éxito", mensaje)
+        else:
+            exito, mensaje = self.service.agregar_habitacion(
+                nombre=nombre,
+                numero=num,
+                tipo=tipo_normalizado,
+                precio=precio_val,
+                capacidad=capacidad,
+                descripcion=descripcion,
+                imagen=self.ruta_imagen
+            )
+            if not exito:
+                QMessageBox.warning(self, "Error", mensaje)
+                return
+            QMessageBox.information(self, "Éxito", mensaje)
 
         if self.al_actualizar_callback:
             self.al_actualizar_callback()

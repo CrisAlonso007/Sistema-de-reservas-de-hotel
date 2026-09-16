@@ -102,9 +102,16 @@ class VentanaPrincipal(QMainWindow):
             f"¿Estás seguro de que deseas eliminar la habitación {habitacion.get('numero')}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        
+
         if confirmacion == QMessageBox.StandardButton.Yes:
-            self.habitacion_service.eliminar_habitacion(habitacion.get("numero"))
+            exito, mensaje = self.habitacion_service.eliminar_habitacion(
+                numero=habitacion.get("numero"),
+                habitacion_id=habitacion.get("id")
+            )
+            if not exito:
+                QMessageBox.warning(self, "Error", mensaje)
+                return
+            QMessageBox.information(self, "Éxito", mensaje)
             self.actualizar_catalogo()
 
     def _mostrar_detalles(self, habitacion: dict):

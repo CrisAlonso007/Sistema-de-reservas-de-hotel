@@ -16,9 +16,9 @@ CREATE TABLE Reserva (
 );
 
 CREATE TABLE registro_habitacion (
-	id int primary key,
+	id INT AUTO_INCREMENT PRIMARY KEY,
     nombre varchar(100),
-    no_habitacion int,
+    no_habitacion int NOT NULL UNIQUE,
     tipo enum('Simple', 'Doble', 'Matrimonial', 'Suite', 'Deluxe', 'Presencial') default 'Simple',
     precio decimal(10,5),
     capacidad varchar(50),
