@@ -2,7 +2,7 @@
 import os
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton
 from PySide6.QtGui import QPixmap
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QEvent
 from utils.stylesheets import TARJETAS_ESTILO
 
 class TarjetaHabitacion(QWidget):
@@ -50,6 +50,9 @@ class TarjetaHabitacion(QWidget):
         lbl_descripcion = QLabel(desc_texto)
         lbl_descripcion.setWordWrap(True)
         lbl_descripcion.setStyleSheet("color: #666; font-size: 12px;")
+        self.lbl_foto.installEventFilter(self)
+        lbl_nombre.installEventFilter(self)
+        lbl_descripcion.installEventFilter(self)
 
         layout_info.addWidget(lbl_nombre)
         layout_info.addWidget(lbl_descripcion)
@@ -77,3 +80,9 @@ class TarjetaHabitacion(QWidget):
 
             self.detalles_solicitados.emit(self.habitacion)
         super().mousePressEvent(event)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.LeftButton:
+            self.detalles_solicitados.emit(self.habitacion)
+            return True
+        return super().eventFilter(watched, event)

@@ -53,7 +53,7 @@ class VentanaPrincipal(QMainWindow):
         self.btn_publicar.setFixedHeight(35)
         self.btn_publicar.clicked.connect(self._abrir_publicar_habitacion)
         
-        if self.usuario_actual.get("rol") != "admin":
+        if self.usuario_actual.get("rol") not in ("admin", "administrador"):
             self.btn_publicar.setVisible(False)
 
         layout_top.addWidget(lbl_titulo)
@@ -68,7 +68,11 @@ class VentanaPrincipal(QMainWindow):
         self.lista_habitaciones.setSpacing(8) 
         layout_principal.addWidget(self.lista_habitaciones)
 
-        self.vista_detalle = DetalleHabitacionWidget(al_volver_callback=self._volver_al_catalogo)
+        self.vista_detalle = DetalleHabitacionWidget(
+            al_volver_callback=self._volver_al_catalogo,
+            usuario_actual=self.usuario_actual,
+            habitacion_service=self.habitacion_service
+        )
 
         self.stack.addWidget(self.vista_catalogo)
         self.stack.addWidget(self.vista_detalle)
@@ -116,7 +120,7 @@ class VentanaPrincipal(QMainWindow):
 
     def _mostrar_detalles(self, habitacion: dict):
         self.vista_detalle.cargar_datos(habitacion)
-        es_cliente = self.usuario_actual.get("rol") != "admin"
+        es_cliente = self.usuario_actual.get("rol") not in ("admin", "administrador")
         self.vista_detalle.configurar_modo(es_cliente)
         self.stack.setCurrentWidget(self.vista_detalle)
 
@@ -126,7 +130,7 @@ class VentanaPrincipal(QMainWindow):
     def actualizar_catalogo(self):
         self.lista_habitaciones.clear()
         habitaciones = self.habitacion_service.obtener_todas()
-        es_admin = self.usuario_actual.get("rol") == "admin"
+        es_admin = self.usuario_actual.get("rol") in ("admin", "administrador")
 
         for hab in habitaciones:
             item = QListWidgetItem(self.lista_habitaciones)

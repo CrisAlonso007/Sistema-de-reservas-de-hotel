@@ -4,7 +4,6 @@ from PySide6.QtWidgets import QApplication
 from ui.registro_window import RegistroUsuario
 from ui.main_window import VentanaPrincipal
 from services.habitacion_service import HabitacionService
-from DATABASE.registro import RegistroDAO
 from DATABASE.conexion import ConexionBD
 
 class AppController:
@@ -12,7 +11,6 @@ class AppController:
         self.app = QApplication(sys.argv)
 
         self.servicio_habitaciones = HabitacionService()
-        self.registro_dao = RegistroDAO()
         self.conexion_bd = ConexionBD()
         self.login_window = RegistroUsuario()
         self.main_window = None

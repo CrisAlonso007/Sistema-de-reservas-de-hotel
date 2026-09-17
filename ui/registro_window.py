@@ -5,8 +5,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtCore import QRegularExpression
-from utils.validaciones import es_usuario_valido, es_password_valido
+from utils.validaciones import es_usuario_valido, es_password_valido, es_identificacion_valida, es_texto_valido
 from utils.stylesheets import ESTILO_CAMPO_VALIDO, ESTILO_CAMPO_INVALIDO
+from DATABASE.registro import RegistroDAO
 
 class RegistroUsuario(QWidget):
     login_exitoso = Signal(dict)
@@ -14,12 +15,9 @@ class RegistroUsuario(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Registro e Inicio de Sesión - Sistema de Reservas")
-        self.setFixedSize(360, 460)
+        self.setFixedSize(420, 650)
 
-        self.usuarios_db = {
-            "admin": {"pass": "1234", "rol": "admin"},
-            "user": {"pass": "1234", "rol": "user"}
-        }
+        self.registro_dao = RegistroDAO()
 
         layout_principal = QVBoxLayout(self)
         layout_principal.setContentsMargins(20, 20, 20, 20)
@@ -97,6 +95,18 @@ class RegistroUsuario(QWidget):
         self.txt_reg_pass.setValidator(QRegularExpressionValidator(QRegularExpression(r"[^\n]{0,30}")))
         self.txt_reg_pass.textChanged.connect(self._validar_registro_pass)
 
+        self.txt_nombre_completo = QLineEdit()
+        self.txt_nombre_completo.setPlaceholderText("Nombre completo")
+        self.txt_nombre_completo.textChanged.connect(self._validar_registro_datos)
+
+        self.txt_identificacion = QLineEdit()
+        self.txt_identificacion.setPlaceholderText("Cédula o pasaporte")
+        self.txt_identificacion.textChanged.connect(self._validar_registro_datos)
+
+        self.txt_contacto = QLineEdit()
+        self.txt_contacto.setPlaceholderText("Teléfono o correo")
+        self.txt_contacto.textChanged.connect(self._validar_registro_datos)
+
         # Combo box para seleccionar el tipo de cuenta
         self.cmb_rol = QComboBox()
         self.cmb_rol.addItems(["user", "Administrador"])
@@ -108,6 +118,9 @@ class RegistroUsuario(QWidget):
         layout.addWidget(lbl_titulo)
         layout.addWidget(self.txt_reg_user)
         layout.addWidget(self.txt_reg_pass)
+        layout.addWidget(self.txt_nombre_completo)
+        layout.addWidget(self.txt_identificacion)
+        layout.addWidget(self.txt_contacto)
         layout.addWidget(QLabel("Tipo de cuenta:"))
         layout.addWidget(self.cmb_rol)
         layout.addSpacing(5)
@@ -131,41 +144,63 @@ class RegistroUsuario(QWidget):
     def _validar_registro_pass(self):
         self._aplicar_estilo_campo(self.txt_reg_pass, es_password_valido(self.txt_reg_pass.text()))
 
+    def _validar_registro_datos(self):
+        self._aplicar_estilo_campo(
+            self.txt_nombre_completo,
+            es_texto_valido(self.txt_nombre_completo.text(), longitud_minima=2)
+        )
+        self._aplicar_estilo_campo(
+            self.txt_identificacion,
+            es_identificacion_valida(self.txt_identificacion.text())
+        )
+        self._aplicar_estilo_campo(
+            self.txt_contacto,
+            es_texto_valido(self.txt_contacto.text(), longitud_minima=5)
+        )
+
     def _procesar_login(self):
         usuario = self.txt_login_user.text().strip()
         password = self.txt_login_pass.text().strip()
 
         if not (es_usuario_valido(usuario) and es_password_valido(password)):
             QMessageBox.warning(self, "Error", "Ingresa un usuario válido y una contraseña de al menos 4 caracteres.")
+            return
         if not usuario or not password:
             QMessageBox.warning(self, "Error", "Por favor ingresa usuario y contraseña.")
             return
 
-        # Validación de credenciales
-        if usuario in self.usuarios_db and self.usuarios_db[usuario]["pass"] == password:
-            datos_usuario = {
-                "nombre": usuario,
-                "rol": self.usuarios_db[usuario]["rol"]
-            }
+        exito, resultado = self.registro_dao.autenticar_usuario(usuario, password)
+        if exito:
+            datos_usuario = resultado
             self.login_exitoso.emit(datos_usuario)
             self.close()
         else:
-            QMessageBox.critical(self, "Error", "Usuario o contraseña incorrectos.")
+            QMessageBox.critical(self, "Error", resultado)
 
     def _procesar_registro(self):
         usuario = self.txt_reg_user.text().strip()
         password = self.txt_reg_pass.text().strip()
+        nombre_completo = self.txt_nombre_completo.text().strip()
+        identificacion = self.txt_identificacion.text().strip()
+        contacto = self.txt_contacto.text().strip()
         rol = "administrador" if self.cmb_rol.currentText() == "Administrador" else "user"
 
-        if not (es_usuario_valido(usuario) and es_password_valido(password)):
-            QMessageBox.warning(self, "Error", "El usuario debe tener entre 3 y 20 caracteres y la contraseña al menos 4 caracteres.")
+        if not (
+            es_usuario_valido(usuario)
+            and es_password_valido(password)
+            and es_texto_valido(nombre_completo, longitud_minima=2)
+            and es_identificacion_valida(identificacion)
+            and es_texto_valido(contacto, longitud_minima=5)
+        ):
+            QMessageBox.warning(self, "Error", "Completa correctamente todos los datos de la cuenta.")
             return
 
-        if usuario in self.usuarios_db:
-            QMessageBox.warning(self, "Error", "El usuario ya existe.")
+        exito, mensaje = self.registro_dao.registro_usuario(
+            usuario, password, rol, nombre_completo, identificacion, contacto
+        )
+        if not exito:
+            QMessageBox.warning(self, "Error", mensaje)
             return
 
-        # Guardar nuevo usuario
-        self.usuarios_db[usuario] = {"pass": password, "rol": rol}
         QMessageBox.information(self, "Éxito", "Cuenta creada correctamente. Ya puedes iniciar sesión.")
         self.tabs.setCurrentIndex(0)

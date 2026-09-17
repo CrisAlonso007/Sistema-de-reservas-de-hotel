@@ -8,6 +8,10 @@ class HabitacionService:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.ruta_foto_defecto = os.path.join(base_dir, "recursos", "habitacion1.jpg")
 
+    def realizar_reserva(self, **datos) -> tuple[bool, str]:
+        """Registra una reserva con todos sus datos de estancia y pago."""
+        return self.dao.realizar_reserva(**datos)
+
     @staticmethod
     def _convertir_numero(numero):
         if numero in (None, ""):
@@ -17,14 +21,18 @@ class HabitacionService:
         except (TypeError, ValueError):
             raise ValueError("El número de habitación debe ser un entero válido.")
 
+    @staticmethod
+    def tipo_para_presentacion(tipo):
+        """Convierte el valor persistido al nombre mostrado en la interfaz."""
+        return "Presidencial" if tipo == "Presencial" else tipo
+
     def obtener_todas(self) -> list[dict]:
         """Llama al DAO para traer las habitaciones y les asigna la imagen por defecto."""
         habitaciones = self.dao.obtener_habitaciones()
 
         for hab in habitaciones:
             tipo = hab.get("tipo")
-            if tipo == "Presencial":
-                hab["tipo"] = "Presidencial"
+            hab["tipo"] = self.tipo_para_presentacion(tipo)
             if "imagen" not in hab or not hab["imagen"]:
                 hab["imagen"] = self.ruta_foto_defecto
 

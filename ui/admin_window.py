@@ -136,20 +136,6 @@ class AdminWindow(QWidget):
         if self.habitacion_a_editar:
             self._cargar_datos_existentes()
 
-    @staticmethod
-    def _tipo_para_combo(tipo):
-        valor = str(tipo or "Simple").strip()
-        if valor == "Presencial":
-            return "Presidencial"
-        return valor
-
-    @staticmethod
-    def _tipo_para_bd(tipo):
-        valor = str(tipo or "Simple").strip()
-        if valor == "Presidencial":
-            return "Presencial"
-        return valor
-
     def _aplicar_estilo_campo(self, campo, valido: bool):
         if hasattr(campo, "setStyleSheet"):
             campo.setStyleSheet(ESTILO_CAMPO_VALIDO if valido else ESTILO_CAMPO_INVALIDO)
@@ -172,7 +158,7 @@ class AdminWindow(QWidget):
         self.txt_numero.setValue(int(hab.get("numero", 1)))
         
         # Seleccionar valor en el ComboBox
-        tipo_hab = self._tipo_para_combo(hab.get("tipo", "Simple"))
+        tipo_hab = self.service.tipo_para_presentacion(hab.get("tipo", "Simple"))
         index = self.cmb_tipo.findText(tipo_hab)
         if index >= 0:
             self.cmb_tipo.setCurrentIndex(index)
@@ -236,14 +222,12 @@ class AdminWindow(QWidget):
             )
             return
 
-        tipo_normalizado = self._tipo_para_bd(tipo)
-
         if self.habitacion_a_editar:
             exito, mensaje = self.service.editar_habitacion(
                 habitacion_id=self.habitacion_a_editar.get("id"),
                 nombre=nombre,
                 numero=num,
-                tipo=tipo_normalizado,
+                tipo=tipo,
                 precio=precio_val,
                 capacidad=capacidad,
                 descripcion=descripcion,
@@ -257,7 +241,7 @@ class AdminWindow(QWidget):
                 "id": self.habitacion_a_editar.get("id"),
                 "nombre": nombre,
                 "numero": num,
-                "tipo": tipo_normalizado,
+                "tipo": tipo,
                 "precio": precio_val,
                 "capacidad": capacidad,
                 "descripcion": descripcion,
@@ -268,7 +252,7 @@ class AdminWindow(QWidget):
             exito, mensaje = self.service.agregar_habitacion(
                 nombre=nombre,
                 numero=num,
-                tipo=tipo_normalizado,
+                tipo=tipo,
                 precio=precio_val,
                 capacidad=capacidad,
                 descripcion=descripcion,

@@ -5,14 +5,10 @@ create table Usuario(
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(100) NOT NULL,
     passwrd VARCHAR(255) NOT NULL,
-    rol ENUM('user', 'administrador') NOT NULL
-);
-
-CREATE TABLE Reserva (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    cliente varchar(100),
-    identificacion varchar(100) not null unique,
-    noches int
+    rol ENUM('user', 'administrador') NOT NULL,
+    nombre_completo VARCHAR(150) NOT NULL,
+    identificacion VARCHAR(50) NOT NULL UNIQUE,
+    contacto VARCHAR(100) NOT NULL
 );
 
 CREATE TABLE registro_habitacion (
@@ -23,6 +19,22 @@ CREATE TABLE registro_habitacion (
     precio decimal(10,5),
     capacidad varchar(50),
     descripcion varchar(255)
+);
+
+CREATE TABLE Reserva (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    cliente varchar(100),
+    identificacion varchar(100) not null,
+    contacto varchar(100) not null,
+    noches int not null,
+    fecha_entrada DATE NOT NULL,
+    fecha_salida DATE NOT NULL,
+    metodo_pago ENUM('Tarjeta de Crédito / Débito', 'Efectivo en Recepción', 'Transferencia Bancaria') NOT NULL,
+    total decimal(10,2) NOT NULL,
+    usuario_id INT,
+    habitacion_id INT,
+    FOREIGN KEY (usuario_id) REFERENCES Usuario(id),
+    FOREIGN KEY (habitacion_id) REFERENCES registro_habitacion(id)
 );
 
 -- CREATE TABLE Pago (
@@ -36,9 +48,10 @@ CREATE TABLE registro_habitacion (
     -- FOREIGN KEY (reserva_id) REFERENCES Reserva(id) ON DELETE CASCADE
 -- );
 
-INSERT INTO Usuario (id, username, passwrd, rol) VALUES
-(1, 'user', 1234, 'user'),
-(2, 'admin', 1234, 'administrador');
+INSERT INTO Usuario
+(id, username, passwrd, rol, nombre_completo, identificacion, contacto) VALUES
+(1, 'user', 1234, 'user', 'Usuario Demo', 'DEMO-0001', 'demo@example.com'),
+(2, 'admin', 1234, 'administrador', 'Administrador', 'DEMO-0002', 'admin@example.com');
 select * from Usuario;
 
 INSERT INTO registro_habitacion (id, nombre, no_habitacion, tipo, precio, capacidad, descripcion) VALUES

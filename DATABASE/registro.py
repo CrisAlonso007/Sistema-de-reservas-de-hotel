@@ -16,13 +16,50 @@ class RegistroDAO:
     def __init__(self):
         self.db = ConexionBD()
 
-    def registro_usuario(self, username, passwrd, rol):
+    def autenticar_usuario(self, username, passwrd):
+        conexion = self.db.conectar()
+        if not conexion:
+            return False, "No hay conexión con el servidor de base de datos."
+
+        sql = """
+            SELECT id, username, rol, nombre_completo, identificacion, contacto
+            FROM Usuario
+            WHERE username = %s AND passwrd = %s
+        """
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(sql, (username, passwrd))
+            usuario = cursor.fetchone()
+            cursor.close()
+
+            if not usuario:
+                return False, "Usuario o contraseña incorrectos."
+
+            return True, {
+                "id": usuario["id"],
+                "nombre": usuario["username"],
+                "rol": "admin" if usuario["rol"] == "administrador" else usuario["rol"],
+                "nombre_completo": usuario["nombre_completo"],
+                "identificacion": usuario["identificacion"],
+                "contacto": usuario["contacto"],
+            }
+        except Error as err:
+            return False, f"Error al autenticar el usuario: {err}"
+        finally:
+            self.db.desconectar()
+
+    def registro_usuario(self, username, passwrd, rol, nombre_completo, identificacion, contacto):
         conexion = self.db.conectar()
         if not conexion:
             return False, "No hay conexión con el servidor de base de datos."
         
-        sql = "INSERT INTO Usuario (username, passwrd, rol) VALUES (%s, %s, %s)"
-        valores = (username, passwrd, rol)
+        sql = """
+            INSERT INTO Usuario
+            (username, passwrd, rol, nombre_completo, identificacion, contacto)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        valores = (username, passwrd, rol, nombre_completo, identificacion, contacto)
 
         try:
             cursor = conexion.cursor()
@@ -34,18 +71,38 @@ class RegistroDAO:
         except Error as err:
             conexion.rollback()
             if err.errno == errorcode.ER_DUP_ENTRY:
-                return False, "El usuario ya está registrado en el sistema."
+                return False, "El usuario o la identificación ya están registrados en el sistema."
             return False, f"Error imprevisto al registrar: {err}"
         finally:
             self.db.desconectar()
 
-    def realizar_reserva(self, cliente, identificacion, noches):
+    def realizar_reserva(
+        self,
+        cliente,
+        identificacion,
+        contacto,
+        noches,
+        fecha_entrada,
+        fecha_salida,
+        metodo_pago,
+        total,
+        usuario_id,
+        habitacion_id,
+    ):
         conexion = self.db.conectar()
         if not conexion:
             return False, "No hay conexión con el servidor de base de datos."
         
-        sql = "INSERT INTO Reserva (id, cliente, identificacion, noches) VALUES (NULL, %s, %s, %s)"
-        valores = (cliente, identificacion, noches)
+        sql = """
+            INSERT INTO Reserva
+            (cliente, identificacion, contacto, noches, fecha_entrada, fecha_salida,
+             metodo_pago, total, usuario_id, habitacion_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        valores = (
+            cliente, identificacion, contacto, noches, fecha_entrada, fecha_salida,
+            metodo_pago, total, usuario_id, habitacion_id
+        )
 
         try:
             cursor = conexion.cursor()
@@ -57,7 +114,7 @@ class RegistroDAO:
         except Error as err:
             conexion.rollback()
             if err.errno == errorcode.ER_DUP_ENTRY:
-                return False, "El cliente ya está registrado en el sistema."
+                return False, "La reserva ya está registrada."
             return False, f"Error imprevisto al registrar: {err}"
         finally:
             self.db.desconectar()

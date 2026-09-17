@@ -2,17 +2,19 @@
 import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, 
-    QLineEdit, QPushButton, QMessageBox, QScrollArea
+    QLineEdit, QPushButton, QMessageBox, QScrollArea, QDateEdit, QSpinBox, QComboBox
 )
-from PySide6.QtGui import QPixmap, QIntValidator
-from PySide6.QtCore import Qt
-from utils.validaciones import es_texto_valido, es_identificacion_valida, es_noches_valida
+from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Qt, QDate
+from utils.validaciones import es_texto_valido, es_identificacion_valida
 from utils.stylesheets import ESTILO_CAMPO_VALIDO, ESTILO_CAMPO_INVALIDO
 
 class DetalleHabitacionWidget(QWidget):
-    def __init__(self, al_volver_callback):
+    def __init__(self, al_volver_callback, usuario_actual=None, habitacion_service=None):
         super().__init__()
         self.al_volver_callback = al_volver_callback
+        self.usuario_actual = usuario_actual or {}
+        self.habitacion_service = habitacion_service
         self.habitacion = {}
 
         layout_base = QVBoxLayout(self)
@@ -90,11 +92,29 @@ class DetalleHabitacionWidget(QWidget):
         self.txt_identificacion.setFixedHeight(30)
         self.txt_identificacion.textChanged.connect(self._validar_identificacion)
 
-        self.txt_noches = QLineEdit()
-        self.txt_noches.setPlaceholderText("Cantidad de noches")
-        self.txt_noches.setFixedHeight(30)
-        self.txt_noches.setValidator(QIntValidator(1, 365))
-        self.txt_noches.textChanged.connect(self._validar_noches)
+        self.txt_contacto = QLineEdit()
+        self.txt_contacto.setPlaceholderText("Teléfono o correo")
+        self.txt_contacto.setFixedHeight(30)
+
+        self.fecha_entrada = QDateEdit(QDate.currentDate())
+        self.fecha_entrada.setCalendarPopup(True)
+        self.fecha_entrada.setDisplayFormat("dd/MM/yyyy")
+        self.fecha_entrada.setMinimumDate(QDate.currentDate())
+        self.fecha_entrada.dateChanged.connect(self._actualizar_estancia)
+
+        self.txt_noches = QSpinBox()
+        self.txt_noches.setRange(1, 365)
+        self.txt_noches.setValue(1)
+        self.txt_noches.valueChanged.connect(self._actualizar_estancia)
+
+        self.lbl_fecha_salida = QLabel()
+        self.lbl_total = QLabel()
+        self.cmb_metodo_pago = QComboBox()
+        self.cmb_metodo_pago.addItems([
+            "Tarjeta de Crédito / Débito",
+            "Efectivo en Recepción",
+            "Transferencia Bancaria",
+        ])
 
         grid_formulario.addWidget(QLabel("Cliente:"), 0, 0)
         grid_formulario.addWidget(self.txt_cliente, 0, 1)
@@ -102,12 +122,25 @@ class DetalleHabitacionWidget(QWidget):
         grid_formulario.addWidget(QLabel("Identificación:"), 1, 0)
         grid_formulario.addWidget(self.txt_identificacion, 1, 1)
 
-        grid_formulario.addWidget(QLabel("N° Noches:"), 2, 0)
-        grid_formulario.addWidget(self.txt_noches, 2, 1)
+        grid_formulario.addWidget(QLabel("Contacto:"), 2, 0)
+        grid_formulario.addWidget(self.txt_contacto, 2, 1)
+
+        grid_formulario.addWidget(QLabel("Fecha de entrada:"), 3, 0)
+        grid_formulario.addWidget(self.fecha_entrada, 3, 1)
+
+        grid_formulario.addWidget(QLabel("N° Noches:"), 4, 0)
+        grid_formulario.addWidget(self.txt_noches, 4, 1)
+
+        grid_formulario.addWidget(QLabel("Fecha de salida:"), 5, 0)
+        grid_formulario.addWidget(self.lbl_fecha_salida, 5, 1)
+        grid_formulario.addWidget(QLabel("Método de pago:"), 6, 0)
+        grid_formulario.addWidget(self.cmb_metodo_pago, 6, 1)
+        grid_formulario.addWidget(QLabel("Total a pagar:"), 7, 0)
+        grid_formulario.addWidget(self.lbl_total, 7, 1)
 
         layout_reserva.addLayout(grid_formulario)
 
-        btn_confirmar = QPushButton("Confirmar Reserva")
+        btn_confirmar = QPushButton("Confirmar y Procesar Reserva")
         btn_confirmar.setFixedHeight(38)
         btn_confirmar.clicked.connect(self._procesar_reserva)
         layout_reserva.addWidget(btn_confirmar)
@@ -119,7 +152,7 @@ class DetalleHabitacionWidget(QWidget):
 
         self._aplicar_estilo_campo(self.txt_cliente, True)
         self._aplicar_estilo_campo(self.txt_identificacion, True)
-        self._aplicar_estilo_campo(self.txt_noches, True)
+        self._actualizar_estancia()
 
     def _aplicar_estilo_campo(self, campo, valido: bool):
         campo.setStyleSheet(ESTILO_CAMPO_VALIDO if valido else ESTILO_CAMPO_INVALIDO)
@@ -130,8 +163,11 @@ class DetalleHabitacionWidget(QWidget):
     def _validar_identificacion(self):
         self._aplicar_estilo_campo(self.txt_identificacion, es_identificacion_valida(self.txt_identificacion.text()))
 
-    def _validar_noches(self):
-        self._aplicar_estilo_campo(self.txt_noches, es_noches_valida(self.txt_noches.text()))
+    def _actualizar_estancia(self):
+        salida = self.fecha_entrada.date().addDays(self.txt_noches.value())
+        total = float(self.habitacion.get("precio", 0)) * self.txt_noches.value()
+        self.lbl_fecha_salida.setText(salida.toString("dd/MM/yyyy"))
+        self.lbl_total.setText(f"${total:.2f}")
 
     def cargar_datos(self, habitacion):
         """Puebla los datos de la habitación seleccionada."""
@@ -161,12 +197,14 @@ class DetalleHabitacionWidget(QWidget):
             self.lbl_foto.setText("Sin Foto Seleccionada")
 
         # Limpiar campos de texto
-        self.txt_cliente.clear()
-        self.txt_identificacion.clear()
-        self.txt_noches.clear()
+        self.txt_cliente.setText(self.usuario_actual.get("nombre_completo", ""))
+        self.txt_identificacion.setText(self.usuario_actual.get("identificacion", ""))
+        self.txt_contacto.setText(self.usuario_actual.get("contacto", ""))
+        self.fecha_entrada.setDate(QDate.currentDate())
+        self.txt_noches.setValue(1)
+        self._actualizar_estancia()
         self._validar_cliente()
         self._validar_identificacion()
-        self._validar_noches()
 
     def configurar_modo(self, es_cliente: bool):
         """Muestra u oculta la sección de reserva según el rol."""
@@ -175,22 +213,49 @@ class DetalleHabitacionWidget(QWidget):
     def _procesar_reserva(self):
         cliente = self.txt_cliente.text().strip()
         cedula = self.txt_identificacion.text().strip()
-        noches = self.txt_noches.text().strip()
+        contacto = self.txt_contacto.text().strip()
+        noches = self.txt_noches.value()
 
         if not (
             es_texto_valido(cliente, longitud_minima=2)
             and es_identificacion_valida(cedula)
-            and es_noches_valida(noches)
+            and es_texto_valido(contacto, longitud_minima=5)
+            and noches > 0
         ):
-            QMessageBox.warning(self, "Datos Incompletos", "Por favor ingresa un nombre, cédula y número de noches válido.")
+            QMessageBox.warning(self, "Datos Incompletos", "Completa los datos del huésped y una estancia válida.")
             return
 
-        total = float(self.habitacion.get("precio", 0)) * int(noches)
+        if not self.habitacion_service:
+            QMessageBox.critical(self, "Error", "El servicio de reservas no está disponible.")
+            return
+
+        fecha_entrada = self.fecha_entrada.date().toString("yyyy-MM-dd")
+        fecha_salida = self.fecha_entrada.date().addDays(noches).toString("yyyy-MM-dd")
+        total = float(self.habitacion.get("precio", 0)) * noches
+        exito, mensaje = self.habitacion_service.realizar_reserva(
+            cliente=cliente,
+            identificacion=cedula,
+            contacto=contacto,
+            noches=noches,
+            fecha_entrada=fecha_entrada,
+            fecha_salida=fecha_salida,
+            metodo_pago=self.cmb_metodo_pago.currentText(),
+            total=total,
+            usuario_id=self.usuario_actual.get("id"),
+            habitacion_id=self.habitacion.get("id"),
+        )
+        if not exito:
+            QMessageBox.warning(self, "Error al reservar", mensaje)
+            return
+
         QMessageBox.information(
             self,
             "Reserva Exitosa",
             f"¡Reserva confirmada para {cliente}!\n\n"
             f"Habitación: {self.habitacion.get('nombre')}\n"
-            f"Total a pagar ({noches} noches): ${total:.2f}"
+            f"Fechas: {self.fecha_entrada.date().toString('dd/MM/yyyy')} - "
+            f"{self.fecha_entrada.date().addDays(noches).toString('dd/MM/yyyy')}\n"
+            f"Método de pago: {self.cmb_metodo_pago.currentText()}\n"
+            f"Total a pagar ({noches} noches): ${total:.2f}\n\n{mensaje}"
         )
         self.al_volver_callback()
