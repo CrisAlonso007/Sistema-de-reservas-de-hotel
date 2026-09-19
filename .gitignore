@@ -1,1 +1,3 @@
 init/
+__pycache__/
+*.pyc
