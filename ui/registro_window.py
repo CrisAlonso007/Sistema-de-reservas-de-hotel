@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtCore import QRegularExpression
-from utils.validaciones import es_usuario_valido, es_password_valido, es_identificacion_valida, es_texto_valido
+from utils.validaciones import *
 from utils.stylesheets import ESTILO_CAMPO_VALIDO, ESTILO_CAMPO_INVALIDO
 from DATABASE.registro import RegistroDAO
 
@@ -83,6 +83,12 @@ class RegistroUsuario(QWidget):
         font.setBold(True)
         lbl_titulo.setFont(font)
 
+
+        self.txt_correo = QLineEdit()
+        self.txt_correo.setPlaceholderText("Correo electrónico")
+        self.txt_correo.setFixedHeight(30)
+        self.txt_correo.textChanged.connect(self._validar_correo)
+
         self.txt_reg_user = QLineEdit()
         self.txt_reg_user.setPlaceholderText("Nombre de usuario")
         self.txt_reg_user.setValidator(QRegularExpressionValidator(QRegularExpression(r"[A-Za-z0-9_]{0,20}")))
@@ -91,49 +97,54 @@ class RegistroUsuario(QWidget):
         self.txt_reg_pass = QLineEdit()
         self.txt_reg_pass.setPlaceholderText("contraseña")
         self.txt_reg_pass.setEchoMode(QLineEdit.EchoMode.Password)
-
         self.txt_reg_pass.setValidator(QRegularExpressionValidator(QRegularExpression(r"[^\n]{0,30}")))
         self.txt_reg_pass.textChanged.connect(self._validar_registro_pass)
+
+        self.txt_subtitulo = QLabel("Datos de identificación")
+        self.txt_subtitulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.txt_nombre_completo = QLineEdit()
         self.txt_nombre_completo.setPlaceholderText("Nombre completo")
         self.txt_nombre_completo.textChanged.connect(self._validar_registro_datos)
 
         self.txt_identificacion = QLineEdit()
-        self.txt_identificacion.setPlaceholderText("Cédula o pasaporte")
+        self.txt_identificacion.setPlaceholderText("Número de identificación")
         self.txt_identificacion.textChanged.connect(self._validar_registro_datos)
 
-        self.txt_contacto = QLineEdit()
-        self.txt_contacto.setPlaceholderText("Teléfono o correo")
-        self.txt_contacto.textChanged.connect(self._validar_registro_datos)
+        self.txt_telefono = QLineEdit()
+        self.txt_telefono.setPlaceholderText("Número de teléfono")
+        self.txt_telefono.textChanged.connect(self._validar_registro_datos)
 
-        # Combo box para seleccionar el tipo de cuenta
-        self.cmb_rol = QComboBox()
-        self.cmb_rol.addItems(["user", "Administrador"])
+        self.txt_correo = QLineEdit()
+        self.txt_correo.setPlaceholderText("Correo electrónico")
+        self.txt_correo.textChanged.connect(self._validar_correo)
 
         btn_register = QPushButton("Enter")
         btn_register.setFixedHeight(35)
         btn_register.clicked.connect(self._procesar_registro)
 
         layout.addWidget(lbl_titulo)
+        layout.addWidget(self.txt_correo)
         layout.addWidget(self.txt_reg_user)
         layout.addWidget(self.txt_reg_pass)
+        layout.addWidget(self.txt_subtitulo)
         layout.addWidget(self.txt_nombre_completo)
         layout.addWidget(self.txt_identificacion)
-        layout.addWidget(self.txt_contacto)
-        layout.addWidget(QLabel("Tipo de cuenta:"))
-        layout.addWidget(self.cmb_rol)
+        layout.addWidget(self.txt_telefono)
         layout.addSpacing(5)
         layout.addWidget(btn_register)
         layout.addStretch()
-
         return widget
 
+#conexion de los metodos de validacion con los campos de texto
     def _aplicar_estilo_campo(self, campo, valido: bool):
         campo.setStyleSheet(ESTILO_CAMPO_VALIDO if valido else ESTILO_CAMPO_INVALIDO)
 
     def _validar_login_user(self):
         self._aplicar_estilo_campo(self.txt_login_user, es_usuario_valido(self.txt_login_user.text()))
+
+    def _validar_correo(self):
+        self._aplicar_estilo_campo(self.txt_correo, validar_correo(self.txt_correo.text()))
 
     def _validar_login_pass(self):
         self._aplicar_estilo_campo(self.txt_login_pass, es_password_valido(self.txt_login_pass.text()))
@@ -144,19 +155,28 @@ class RegistroUsuario(QWidget):
     def _validar_registro_pass(self):
         self._aplicar_estilo_campo(self.txt_reg_pass, es_password_valido(self.txt_reg_pass.text()))
 
-    def _validar_registro_datos(self):
+    def _validar_nombre_completo(self):
         self._aplicar_estilo_campo(
             self.txt_nombre_completo,
-            es_texto_valido(self.txt_nombre_completo.text(), longitud_minima=2)
+            validar_nombre_completo(self.txt_nombre_completo.text()),
         )
+
+    def _validar_identificacion(self):
         self._aplicar_estilo_campo(
             self.txt_identificacion,
-            es_identificacion_valida(self.txt_identificacion.text())
+            es_identificacion_valida(self.txt_identificacion.text()),
         )
+
+    def _validar_telefono(self):
         self._aplicar_estilo_campo(
-            self.txt_contacto,
-            es_texto_valido(self.txt_contacto.text(), longitud_minima=5)
+            self.txt_telefono,
+            validar_telefono(self.txt_telefono.text()),
         )
+
+    def _validar_registro_datos(self):
+        self._validar_nombre_completo()
+        self._validar_identificacion()
+        self._validar_telefono()
 
     def _procesar_login(self):
         usuario = self.txt_login_user.text().strip()
@@ -182,15 +202,15 @@ class RegistroUsuario(QWidget):
         password = self.txt_reg_pass.text().strip()
         nombre_completo = self.txt_nombre_completo.text().strip()
         identificacion = self.txt_identificacion.text().strip()
-        contacto = self.txt_contacto.text().strip()
+        contacto = self.txt_telefono.text().strip()
         rol = "administrador" if self.cmb_rol.currentText() == "Administrador" else "user"
 
         if not (
             es_usuario_valido(usuario)
             and es_password_valido(password)
-            and es_texto_valido(nombre_completo, longitud_minima=2)
+            and validar_nombre_completo(nombre_completo)
             and es_identificacion_valida(identificacion)
-            and es_texto_valido(contacto, longitud_minima=5)
+            and validar_telefono(contacto)
         ):
             QMessageBox.warning(self, "Error", "Completa correctamente todos los datos de la cuenta.")
             return

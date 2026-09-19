@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt, QDate
-from utils.validaciones import es_texto_valido, es_identificacion_valida
+from utils.validaciones import *
 from utils.stylesheets import ESTILO_CAMPO_VALIDO, ESTILO_CAMPO_INVALIDO
 
 class DetalleHabitacionWidget(QWidget):
@@ -88,13 +88,20 @@ class DetalleHabitacionWidget(QWidget):
         self.txt_cliente.textChanged.connect(self._validar_cliente)
 
         self.txt_identificacion = QLineEdit()
-        self.txt_identificacion.setPlaceholderText("N° Cédula o Pasaporte")
+        self.txt_identificacion.setPlaceholderText("Numero de identificación")
         self.txt_identificacion.setFixedHeight(30)
         self.txt_identificacion.textChanged.connect(self._validar_identificacion)
 
+
         self.txt_contacto = QLineEdit()
-        self.txt_contacto.setPlaceholderText("Teléfono o correo")
+        self.txt_contacto.setPlaceholderText("Número de teléfono")
         self.txt_contacto.setFixedHeight(30)
+        self.txt_contacto.textChanged.connect(self._validar_telefono)
+
+        self.txt_correo = QLineEdit()
+        self.txt_correo.setPlaceholderText("Correo electrónico")
+        self.txt_correo.setFixedHeight(30)
+        self.txt_correo.textChanged.connect(self._validar_correo)
 
         self.fecha_entrada = QDateEdit(QDate.currentDate())
         self.fecha_entrada.setCalendarPopup(True)
@@ -162,6 +169,12 @@ class DetalleHabitacionWidget(QWidget):
 
     def _validar_identificacion(self):
         self._aplicar_estilo_campo(self.txt_identificacion, es_identificacion_valida(self.txt_identificacion.text()))
+
+    def _validar_telefono(self):
+        self._aplicar_estilo_campo(self.txt_contacto, es_texto_valido(self.txt_contacto.text(), longitud_minima=5))
+
+    def _validar_correo(self):
+        self._aplicar_estilo_campo(self.txt_correo, validar_correo(self.txt_correo.text()))
 
     def _actualizar_estancia(self):
         salida = self.fecha_entrada.date().addDays(self.txt_noches.value())

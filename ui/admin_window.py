@@ -7,20 +7,12 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt
-from utils.validaciones import es_texto_valido, es_precio_valido
-from utils.stylesheets import (
-    ESTILO_SELECTOR_IMAGEN,
-    ESTILO_CAMPO_VALIDO,
-    ESTILO_CAMPO_INVALIDO,
-    ESTILO_PRECIO_VALIDO,
-    ESTILO_PRECIO_INVALIDO,
-)
-
+from utils.validaciones import *
+from utils.stylesheets import *
 
 class SpinBoxNumeroHabitacion(QSpinBox):
     def textFromValue(self, value: int) -> str:
         return f"{value:03d}"
-
 
 class SpinBoxCapacidad(QSpinBox):
     def textFromValue(self, value: int) -> str:
