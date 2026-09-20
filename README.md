@@ -15,25 +15,4 @@ El sistema está construido siguiendo una arquitectura por capas (DAO / Service 
   * ui/
   * utils/
 
-## **Estructura del Proyecto**
-📂 Sistema de Reservas/
-├── 📂 DATABASE/
-│   ├── conexion.py          # Clase de conexión a la BD MySQL
-│   └── registro.py          # Patrón DAO (Data Access Object)
-├── 📂 services/
-│   └── habitacion_service.py # Lógica intermedia para habitaciones
-├── 📂 ui/
-│   ├── registro_window.py   # Formulario de inicio de sesión y registro
-│   ├── main_window.py       # Ventana principal y navegación de la app
-│   ├── admin_window.py      # Módulo de administración de habitaciones
-│   └── detalle_habitacion.py# Vista de detalles, reservas y pagos
-├── 📂 utils/
-│   ├── 📄 validaciones.py      # Expresiones regulares y reglas de campos
-│   └── 📄 stylesheets.py       # Hojas de estilo visuales para componentes
-├── 📂 recursos/                # Imágenes predeterminadas y assets
-├──  main.py                  # Punto de entrada de la aplicación
-└── database.sql             # Script SQL de creación de tablas
-
-## **Esquema de la Base de Datos**
-
 
