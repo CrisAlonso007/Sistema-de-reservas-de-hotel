@@ -2,9 +2,6 @@
 import re
 from datetime import datetime
 
-# ----------------------------------------------------------------------
-# VALIDACIÓN BASE / GENÉRICA DE TEXTO
-# ----------------------------------------------------------------------
 def es_texto_valido(texto: str, longitud_minima: int = 1, longitud_maxima: int | None = None) -> bool:
     """Verifica que la cadena no sea None, no esté vacía ni contenga solo espacios."""
     if texto is None:
@@ -18,7 +15,6 @@ def es_texto_valido(texto: str, longitud_minima: int = 1, longitud_maxima: int |
         return False
 
     return True
-
 
 # ----------------------------------------------------------------------
 # VALIDACIONES INDIVIDUALES PARA PUBLICACIÓN DE HABITACIÓN

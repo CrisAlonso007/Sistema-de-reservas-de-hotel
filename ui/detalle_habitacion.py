@@ -85,23 +85,30 @@ class DetalleHabitacionWidget(QWidget):
         self.txt_cliente = QLineEdit()
         self.txt_cliente.setPlaceholderText("Nombre completo")
         self.txt_cliente.setFixedHeight(30)
+        self.txt_cliente.setReadOnly(True)
+        self.txt_cliente.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.txt_cliente.textChanged.connect(self._validar_cliente)
 
         self.txt_identificacion = QLineEdit()
         self.txt_identificacion.setPlaceholderText("Numero de identificación")
         self.txt_identificacion.setFixedHeight(30)
+        self.txt_identificacion.setReadOnly(True)
+        self.txt_identificacion.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.txt_identificacion.textChanged.connect(self._validar_identificacion)
-
-
-        self.txt_contacto = QLineEdit()
-        self.txt_contacto.setPlaceholderText("Número de teléfono")
-        self.txt_contacto.setFixedHeight(30)
-        self.txt_contacto.textChanged.connect(self._validar_telefono)
 
         self.txt_correo = QLineEdit()
         self.txt_correo.setPlaceholderText("Correo electrónico")
         self.txt_correo.setFixedHeight(30)
+        self.txt_correo.setReadOnly(True)
+        self.txt_correo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.txt_correo.textChanged.connect(self._validar_correo)
+
+        self.txt_contacto = QLineEdit()
+        self.txt_contacto.setPlaceholderText("Número de teléfono")
+        self.txt_contacto.setFixedHeight(30)
+        self.txt_contacto.setReadOnly(True)
+        self.txt_contacto.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.txt_contacto.textChanged.connect(self._validar_telefono)
 
         self.fecha_entrada = QDateEdit(QDate.currentDate())
         self.fecha_entrada.setCalendarPopup(True)
@@ -129,21 +136,24 @@ class DetalleHabitacionWidget(QWidget):
         grid_formulario.addWidget(QLabel("Identificación:"), 1, 0)
         grid_formulario.addWidget(self.txt_identificacion, 1, 1)
 
-        grid_formulario.addWidget(QLabel("Contacto:"), 2, 0)
-        grid_formulario.addWidget(self.txt_contacto, 2, 1)
+        grid_formulario.addWidget(QLabel("Correo electrónico:"), 2, 0)
+        grid_formulario.addWidget(self.txt_correo, 2, 1)
 
-        grid_formulario.addWidget(QLabel("Fecha de entrada:"), 3, 0)
-        grid_formulario.addWidget(self.fecha_entrada, 3, 1)
+        grid_formulario.addWidget(QLabel("Teléfono:"), 3, 0)
+        grid_formulario.addWidget(self.txt_contacto, 3, 1)
 
-        grid_formulario.addWidget(QLabel("N° Noches:"), 4, 0)
-        grid_formulario.addWidget(self.txt_noches, 4, 1)
+        grid_formulario.addWidget(QLabel("Fecha de entrada:"), 4, 0)
+        grid_formulario.addWidget(self.fecha_entrada, 4, 1)
 
-        grid_formulario.addWidget(QLabel("Fecha de salida:"), 5, 0)
-        grid_formulario.addWidget(self.lbl_fecha_salida, 5, 1)
-        grid_formulario.addWidget(QLabel("Método de pago:"), 6, 0)
-        grid_formulario.addWidget(self.cmb_metodo_pago, 6, 1)
-        grid_formulario.addWidget(QLabel("Total a pagar:"), 7, 0)
-        grid_formulario.addWidget(self.lbl_total, 7, 1)
+        grid_formulario.addWidget(QLabel("N° Noches:"), 5, 0)
+        grid_formulario.addWidget(self.txt_noches, 5, 1)
+
+        grid_formulario.addWidget(QLabel("Fecha de salida:"), 6, 0)
+        grid_formulario.addWidget(self.lbl_fecha_salida, 6, 1)
+        grid_formulario.addWidget(QLabel("Método de pago:"), 7, 0)
+        grid_formulario.addWidget(self.cmb_metodo_pago, 7, 1)
+        grid_formulario.addWidget(QLabel("Total a pagar:"), 8, 0)
+        grid_formulario.addWidget(self.lbl_total, 8, 1)
 
         layout_reserva.addLayout(grid_formulario)
 
@@ -171,7 +181,7 @@ class DetalleHabitacionWidget(QWidget):
         self._aplicar_estilo_campo(self.txt_identificacion, es_identificacion_valida(self.txt_identificacion.text()))
 
     def _validar_telefono(self):
-        self._aplicar_estilo_campo(self.txt_contacto, es_texto_valido(self.txt_contacto.text(), longitud_minima=5))
+        self._aplicar_estilo_campo(self.txt_contacto, validar_telefono(self.txt_contacto.text()))
 
     def _validar_correo(self):
         self._aplicar_estilo_campo(self.txt_correo, validar_correo(self.txt_correo.text()))
@@ -181,6 +191,13 @@ class DetalleHabitacionWidget(QWidget):
         total = float(self.habitacion.get("precio", 0)) * self.txt_noches.value()
         self.lbl_fecha_salida.setText(salida.toString("dd/MM/yyyy"))
         self.lbl_total.setText(f"${total:.2f}")
+
+    def _obtener_dato_usuario(self, *claves, valor_predeterminado=""):
+        for clave in claves:
+            valor = self.usuario_actual.get(clave)
+            if valor is not None and str(valor).strip():
+                return str(valor).strip()
+        return valor_predeterminado
 
     def cargar_datos(self, habitacion):
         """Puebla los datos de la habitación seleccionada."""
@@ -209,15 +226,17 @@ class DetalleHabitacionWidget(QWidget):
         else:
             self.lbl_foto.setText("Sin Foto Seleccionada")
 
-        # Limpiar campos de texto
-        self.txt_cliente.setText(self.usuario_actual.get("nombre_completo", ""))
-        self.txt_identificacion.setText(self.usuario_actual.get("identificacion", ""))
-        self.txt_contacto.setText(self.usuario_actual.get("contacto", ""))
+        self.txt_cliente.setText(self._obtener_dato_usuario("nombre_completo", "nombre", "cliente"))
+        self.txt_identificacion.setText(self._obtener_dato_usuario("identificacion", "cedula", "dni"))
+        self.txt_correo.setText(self._obtener_dato_usuario("correo", "email", "correo_electronico", "contacto"))
+        self.txt_contacto.setText(self._obtener_dato_usuario("telefono", "contacto", "telefono_contacto"))
         self.fecha_entrada.setDate(QDate.currentDate())
         self.txt_noches.setValue(1)
         self._actualizar_estancia()
         self._validar_cliente()
         self._validar_identificacion()
+        self._validar_correo()
+        self._validar_telefono()
 
     def configurar_modo(self, es_cliente: bool):
         """Muestra u oculta la sección de reserva según el rol."""
@@ -226,16 +245,18 @@ class DetalleHabitacionWidget(QWidget):
     def _procesar_reserva(self):
         cliente = self.txt_cliente.text().strip()
         cedula = self.txt_identificacion.text().strip()
+        correo = self.txt_correo.text().strip()
         contacto = self.txt_contacto.text().strip()
         noches = self.txt_noches.value()
 
         if not (
             es_texto_valido(cliente, longitud_minima=2)
             and es_identificacion_valida(cedula)
-            and es_texto_valido(contacto, longitud_minima=5)
+            and validar_correo(correo)
+            and validar_telefono(contacto)
             and noches > 0
         ):
-            QMessageBox.warning(self, "Datos Incompletos", "Completa los datos del huésped y una estancia válida.")
+            QMessageBox.warning(self, "Datos Incompletos", "Los datos del huésped no son válidos o están incompletos.")
             return
 
         if not self.habitacion_service:

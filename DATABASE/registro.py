@@ -36,13 +36,18 @@ class RegistroDAO:
             if not usuario:
                 return False, "Usuario o contraseña incorrectos."
 
+            telefono = usuario.get("telefono") or usuario.get("contacto") or ""
+            correo = usuario.get("correo") or usuario.get("email") or usuario.get("contacto") or ""
+
             return True, {
                 "id": usuario["id"],
                 "nombre": usuario["username"],
                 "rol": "admin" if usuario["rol"] == "administrador" else usuario["rol"],
                 "nombre_completo": usuario["nombre_completo"],
                 "identificacion": usuario["identificacion"],
-                "contacto": usuario["contacto"],
+                "contacto": usuario.get("contacto") or telefono,
+                "telefono": telefono,
+                "correo": correo,
             }
         except Error as err:
             return False, f"Error al autenticar el usuario: {err}"
