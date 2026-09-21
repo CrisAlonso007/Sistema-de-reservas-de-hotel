@@ -24,7 +24,14 @@ class HabitacionService:
     @staticmethod
     def tipo_para_presentacion(tipo):
         """Convierte el valor persistido al nombre mostrado en la interfaz."""
-        return "Presidencial" if tipo == "Presencial" else tipo
+        if tipo is None:
+            return "Simple"
+        valor = str(tipo).strip()
+        equivalencias = {
+            "Presencial": "Presidencial",
+            "Presidencial": "Presidencial",
+        }
+        return equivalencias.get(valor, valor)
 
     def obtener_todas(self) -> list[dict]:
         """Llama al DAO para traer las habitaciones y les asigna la imagen por defecto."""

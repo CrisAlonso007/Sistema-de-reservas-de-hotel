@@ -120,10 +120,6 @@ class RegistroUsuario(QWidget):
         self.txt_subtitulo = QLabel("Datos de identificación")
         self.txt_subtitulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.cmb_rol = QComboBox()
-        self.cmb_rol.addItem("Usuario")
-        self.cmb_rol.setEnabled(False)
-
         self.txt_nombre_completo = QLineEdit()
         self.txt_nombre_completo.setPlaceholderText("Nombre completo")
         self.txt_nombre_completo.textChanged.connect(self._validar_registro_datos)
@@ -149,7 +145,6 @@ class RegistroUsuario(QWidget):
         layout.addWidget(self.txt_reg_user)
         layout.addWidget(self.txt_reg_pass)
         layout.addWidget(self.txt_subtitulo)
-        layout.addWidget(self.cmb_rol)
         layout.addWidget(self.txt_nombre_completo)
         layout.addWidget(self.txt_identificacion)
         layout.addWidget(self.txt_telefono)

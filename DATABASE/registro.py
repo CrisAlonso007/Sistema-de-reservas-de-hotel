@@ -7,8 +7,15 @@ class RegistroDAO:
     @staticmethod
     def _normalizar_tipo_habitacion(tipo):
         valor = str(tipo or "Simple").strip()
+        valor = valor.strip().title()
         equivalencias = {
             "Presencial": "Presidencial",
+            "Presidencial": "Presidencial",
+            "Simple": "Simple",
+            "Doble": "Doble",
+            "Matrimonial": "Matrimonial",
+            "Suite": "Suite",
+            "Deluxe": "Deluxe",
         }
         return equivalencias.get(valor, valor)
 
