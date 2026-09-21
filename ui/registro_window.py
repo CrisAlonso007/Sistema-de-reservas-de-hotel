@@ -8,6 +8,7 @@ from PySide6.QtCore import QRegularExpression
 from utils.validaciones import *
 from utils.stylesheets import ESTILO_CAMPO_VALIDO, ESTILO_CAMPO_INVALIDO
 from DATABASE.registro import RegistroDAO
+from DATABASE.conexion import ConexionBD
 
 class RegistroUsuario(QWidget):
     login_exitoso = Signal(dict)
@@ -27,6 +28,22 @@ class RegistroUsuario(QWidget):
         self.tabs.addTab(self._crear_tab_registro(), "Crear Cuenta")
 
         layout_principal.addWidget(self.tabs)
+
+        self.lbl_estado_bd = QLabel()
+        self.lbl_estado_bd.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout_principal.addWidget(self.lbl_estado_bd)
+        self._actualizar_estado_bd()
+
+    def _actualizar_estado_bd(self):
+        conexion_bd = ConexionBD()
+        conexion = conexion_bd.conectar()
+        if conexion:
+            self.lbl_estado_bd.setText("Base de datos: conectada")
+            self.lbl_estado_bd.setStyleSheet("color: #16803c; font-weight: bold;")
+        else:
+            self.lbl_estado_bd.setText("Base de datos: no conectada")
+            self.lbl_estado_bd.setStyleSheet("color: #b42318; font-weight: bold;")
+        conexion_bd.desconectar()
 
     @staticmethod
     def _aplicar_estado_campo(widget, es_valido):
@@ -103,6 +120,10 @@ class RegistroUsuario(QWidget):
         self.txt_subtitulo = QLabel("Datos de identificación")
         self.txt_subtitulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        self.cmb_rol = QComboBox()
+        self.cmb_rol.addItem("Usuario")
+        self.cmb_rol.setEnabled(False)
+
         self.txt_nombre_completo = QLineEdit()
         self.txt_nombre_completo.setPlaceholderText("Nombre completo")
         self.txt_nombre_completo.textChanged.connect(self._validar_registro_datos)
@@ -128,6 +149,7 @@ class RegistroUsuario(QWidget):
         layout.addWidget(self.txt_reg_user)
         layout.addWidget(self.txt_reg_pass)
         layout.addWidget(self.txt_subtitulo)
+        layout.addWidget(self.cmb_rol)
         layout.addWidget(self.txt_nombre_completo)
         layout.addWidget(self.txt_identificacion)
         layout.addWidget(self.txt_telefono)
@@ -202,7 +224,8 @@ class RegistroUsuario(QWidget):
         password = self.txt_reg_pass.text().strip()
         nombre_completo = self.txt_nombre_completo.text().strip()
         identificacion = self.txt_identificacion.text().strip()
-        contacto = self.txt_telefono.text().strip()
+        correo = self.txt_correo.text().strip()
+        telefono = self.txt_telefono.text().strip()
         rol = "administrador" if self.cmb_rol.currentText() == "Administrador" else "user"
 
         if not (
@@ -210,13 +233,15 @@ class RegistroUsuario(QWidget):
             and es_password_valido(password)
             and validar_nombre_completo(nombre_completo)
             and es_identificacion_valida(identificacion)
-            and validar_telefono(contacto)
+            and validar_correo(correo)
+            and validar_telefono(telefono)
         ):
             QMessageBox.warning(self, "Error", "Completa correctamente todos los datos de la cuenta.")
             return
 
         exito, mensaje = self.registro_dao.registro_usuario(
-            usuario, password, rol, nombre_completo, identificacion, contacto
+            usuario, password, rol, nombre_completo,
+            identificacion, correo, telefono
         )
         if not exito:
             QMessageBox.warning(self, "Error", mensaje)

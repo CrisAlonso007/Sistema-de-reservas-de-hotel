@@ -43,7 +43,11 @@ class TarjetaHabitacion(QWidget):
         layout_info.setSpacing(5)
 
         nombre_texto = habitacion.get("nombre", f"Habitación {habitacion.get('numero', '')}")
-        lbl_nombre = QLabel(f"<b>{nombre_texto}</b> — ${habitacion.get('precio', 0):.2f}/noche")
+        estatus = habitacion.get("estatus", "Disponible")
+        lbl_nombre = QLabel(
+            f"<b>{nombre_texto}</b> — ${habitacion.get('precio', 0):.2f}/noche "
+            f"— <b>{estatus}</b>"
+        )
         lbl_nombre.setStyleSheet("font-size: 15px; color: #2c3e50;")
 
         desc_texto = habitacion.get("descripcion", f"Tipo: {habitacion.get('tipo', 'N/A')} | Capacidad: {habitacion.get('capacidad', 'N/A')}")

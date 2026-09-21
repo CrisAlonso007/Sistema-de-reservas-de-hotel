@@ -60,7 +60,8 @@ class HabitacionService:
             tipo=tipo,
             precio=precio,
             capacidad=capacidad,
-            descripcion=descripcion
+            descripcion=descripcion,
+            imagen=imagen,
         )
         return exito, mensaje
 
@@ -91,7 +92,8 @@ class HabitacionService:
             tipo=tipo,
             precio=precio,
             capacidad=capacidad,
-            descripcion=descripcion
+            descripcion=descripcion,
+            imagen=imagen,
         )
         return exito, mensaje
 

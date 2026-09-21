@@ -208,7 +208,8 @@ class DetalleHabitacionWidget(QWidget):
         self.lbl_info.setText(
             f"<b>Tipo:</b> {habitacion.get('tipo', 'N/A')} &nbsp;&nbsp;|&nbsp;&nbsp; "
             f"<b>N°:</b> {habitacion.get('numero', 'N/A')} &nbsp;&nbsp;|&nbsp;&nbsp; "
-            f"<b>Capacidad:</b> {habitacion.get('capacidad', 'N/A')}<br>"
+            f"<b>Capacidad:</b> {habitacion.get('capacidad', 'N/A')} &nbsp;&nbsp;|&nbsp;&nbsp; "
+            f"<b>Estado:</b> {habitacion.get('estatus', 'Disponible')}<br>"
             f"<b>Precio por Noche:</b> ${habitacion.get('precio', 0):.2f}"
         )
         
@@ -243,6 +244,10 @@ class DetalleHabitacionWidget(QWidget):
         self.seccion_reserva.setVisible(es_cliente)
 
     def _procesar_reserva(self):
+        if self.habitacion.get("estatus") == "Ocupado":
+            QMessageBox.warning(self, "Habitación no disponible", "La habitación seleccionada está ocupada.")
+            return
+
         cliente = self.txt_cliente.text().strip()
         cedula = self.txt_identificacion.text().strip()
         correo = self.txt_correo.text().strip()
@@ -270,6 +275,7 @@ class DetalleHabitacionWidget(QWidget):
             cliente=cliente,
             identificacion=cedula,
             contacto=contacto,
+            correo=correo,
             noches=noches,
             fecha_entrada=fecha_entrada,
             fecha_salida=fecha_salida,
