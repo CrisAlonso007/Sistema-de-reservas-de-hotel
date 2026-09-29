@@ -2,6 +2,13 @@
 import re
 from datetime import datetime
 
+# Límites alineados con el esquema MySQL (ver DATABASE/BD_Registro.sql)
+MAX_NOMBRE_HABITACION = 100
+MAX_DESCRIPCION_HABITACION = 255
+MAX_NOMBRE_HUESPED = 100
+MAX_TELEFONO = 50
+MAX_CORREO = 100
+
 def es_texto_valido(texto: str, longitud_minima: int = 1, longitud_maxima: int | None = None) -> bool:
     """Verifica que la cadena no sea None, no esté vacía ni contenga solo espacios."""
     if texto is None:
@@ -17,40 +24,39 @@ def es_texto_valido(texto: str, longitud_minima: int = 1, longitud_maxima: int |
     return True
 
 # ----------------------------------------------------------------------
-# VALIDACIONES INDIVIDUALES PARA PUBLICACIÓN DE HABITACIÓN
+# VALIDACIONES DEL CATALOGO DE HABITACIONES
 # ----------------------------------------------------------------------
-def nombre_habitacion_valido(nombre: str) -> bool:
-    """Valida un nombre de habitación (3-50 caracteres alfanuméricos con acentos y espacios)."""
-    if not isinstance(nombre, str):
+def es_precio_valido(valor: str | float | int) -> bool:
+    """Verifica que el valor sea un número positivo menor o igual a 10000."""
+    if valor is None:
         return False
-    nombre_limpio = nombre.strip()
-    if not (3 <= len(nombre_limpio) <= 50):
+
+    try:
+        valor_limpio = str(valor).replace("$", "").replace(",", "").strip()
+        precio = float(valor_limpio)
+        return 0 < precio <= 10000
+    except (TypeError, ValueError):
         return False
-    return bool(re.fullmatch(r"[A-Za-z0-9ÁÉÍÓÚáéíóúÑñ\s]+", nombre_limpio))
 
 
-def precio_habitacion_valido(precio: str | float | int) -> bool:
-    """Valida que el precio sea un número positivo entre 0.01 y 10000."""
-    return es_precio_valido(precio)
-
-
-def descripcion_habitacion_valida(descripcion: str) -> bool:
-    """Valida la descripción de la habitación (10-500 caracteres)."""
-    if not isinstance(descripcion, str):
+def es_capacidad_valida(valor: str | int) -> bool:
+    """Valida que la capacidad sea un entero entre 1 y 20 huéspedes."""
+    try:
+        personas = int(str(valor).strip())
+        return 1 <= personas <= 20
+    except (TypeError, ValueError):
         return False
-    desc_limpia = descripcion.strip()
-    return 10 <= len(desc_limpia) <= 500
 
 
 # ----------------------------------------------------------------------
-# VALIDACIONES INDIVIDUALES PARA REGISTRO DE USUARIOS Y CONTACTO
+# VALIDACIONES DEL PERSONAL Y DEL CONTACTO DEL HUESPED
 # ----------------------------------------------------------------------
 def validar_correo(correo: str) -> bool:
     """Valida un correo electrónico independiente de otras reglas."""
     if not isinstance(correo, str):
         return False
     correo_limpio = correo.strip()
-    if not (5 <= len(correo_limpio) <= 100):
+    if not (5 <= len(correo_limpio) <= MAX_CORREO):
         return False
     return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", correo_limpio))
 
@@ -89,7 +95,7 @@ def validar_nombre_completo(nombre: str) -> bool:
     if not isinstance(nombre, str):
         return False
     nom_limpio = nombre.strip()
-    if not (2 <= len(nom_limpio) <= 100):
+    if not (2 <= len(nom_limpio) <= MAX_NOMBRE_HUESPED):
         return False
     return bool(re.fullmatch(r"[A-Za-zÁÉÍÓÚáéíóúÑñ]+(?:[ '\-][A-Za-zÁÉÍÓÚáéíóúÑñ]+)*", nom_limpio))
 
@@ -99,13 +105,13 @@ def validar_telefono(telefono: str) -> bool:
     if telefono is None:
         return False
     tel_limpio = str(telefono).strip()
-    if not (5 <= len(tel_limpio) <= 100):
+    if not (5 <= len(tel_limpio) <= MAX_TELEFONO):
         return False
     return bool(re.fullmatch(r"\+?[0-9][0-9 ()-]{5,18}[0-9]", tel_limpio))
 
 
 # ----------------------------------------------------------------------
-# VALIDACIONES INDIVIDUALES PARA RESERVAS Y PRECIOS
+# VALIDACIONES DE LAS ESTANCIAS
 # ----------------------------------------------------------------------
 def es_fecha_valida(fecha: str) -> bool:
     """Valida formato YYYY-MM-DD y que no sea una fecha pasada."""
@@ -114,8 +120,7 @@ def es_fecha_valida(fecha: str) -> bool:
 
     try:
         fecha_obj = datetime.strptime(fecha.strip(), "%Y-%m-%d")
-        fecha_actual = datetime.now()
-        return fecha_obj.date() >= fecha_actual.date()
+        return fecha_obj.date() >= datetime.now().date()
     except (ValueError, AttributeError):
         return False
 
@@ -127,19 +132,6 @@ def es_noches_valida(valor: str | int) -> bool:
 
     try:
         cantidad = int(str(valor).strip())
-        return cantidad > 0
-    except (TypeError, ValueError):
-        return False
-
-
-def es_precio_valido(valor: str | float | int) -> bool:
-    """Verifica que el valor sea un número positivo menor o igual a 10000."""
-    if valor is None:
-        return False
-
-    try:
-        valor_limpio = str(valor).replace("$", "").replace(",", "").strip()
-        precio = float(valor_limpio)
-        return 0 < precio <= 10000
+        return 0 < cantidad <= 365
     except (TypeError, ValueError):
         return False

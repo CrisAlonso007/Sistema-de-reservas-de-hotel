@@ -1,146 +1,233 @@
 # ui/main_window.py
-import os
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, 
-    QListWidgetItem, QPushButton, QStackedWidget, QMenu, QMessageBox
+    QMainWindow, QStackedWidget, QVBoxLayout, QWidget, QMessageBox
 )
-from PySide6.QtGui import QAction, QIcon
-from PySide6.QtCore import QSize, Qt
-from ui.admin_window import AdminWindow
-from ui.tarjetas_lista import TarjetaHabitacion
-from ui.detalle_habitacion import DetalleHabitacionWidget
+from PySide6.QtCore import Signal, QTimer
 from services.habitacion_service import HabitacionService
-from ui.registro_window import RegistroUsuario
+from services.reserva_service import ReservaService
+from ui.admin_window import AdminWindow
+from ui.banner_navegacion import BannerNavegacion
+from ui.detalle_habitacion import DetalleHabitacionWidget
+from ui.panel_catalogo import PanelCatalogo
+from ui.panel_dashboard import PanelDashboard
+from ui.panel_recepcion import PanelRecepcion
+from ui.registro_huesped import RegistroHuespedDialog
+from utils.permisos import puede_administrar_catalogo
 
 class VentanaPrincipal(QMainWindow):
-    def __init__(self, usuario_actual: dict = None, habitacion_service: HabitacionService = None):
+    """Shell de la aplicación: banner superior y paneles apilados."""
+
+    sesion_cerrada = Signal()
+
+    PANEL_DETALLE = "__detalle__"
+
+    INTERVALO_REFRESCO_MS = 30000
+
+    def __init__(self, usuario_actual: dict = None, habitacion_service=None, reserva_service=None):
         super().__init__()
-        self.setWindowTitle("Sistema de Reservas de Hotel")
-        self.resize(850, 600)
-
-        self.usuario_actual = usuario_actual or {"nombre": "Invitado", "rol": "user"}
+        self.usuario_actual = usuario_actual or {}
         self.habitacion_service = habitacion_service or HabitacionService()
+        self.reserva_service = reserva_service or ReservaService()
         self.ventana_admin = None
+        self.dialogo_registro = None
+        self.habitacion_en_detalle = None
 
-        # -------------------------------------------------------------
-        # BOTÓN DE USUARIO
-        # -------------------------------------------------------------
-        nombre_usuario = self.usuario_actual.get("nombre", "Invitado")
-        
-        #Formato del boton Hola, Nombre_usuario
-        self.btn_usuario = QPushButton(f"Hola, {nombre_usuario}")
-        self.btn_usuario.setCursor(Qt.PointingHandCursor)
-        self.btn_usuario.setFixedHeight(38)
+        self.setWindowTitle("Sistema de Reservas de Hotel · Recepción")
+        self.resize(1180, 720)
 
-        # Menú desplegable para el botón
-        menu_usuario = QMenu(self)
-        
-        accion_cerrar_sesion = QAction("Cerrar Sesión", self)
-        accion_cerrar_sesion.triggered.connect(self._cerrar_sesion)
-        
-        menu_usuario.addAction(accion_cerrar_sesion)
-        self.btn_usuario.setMenu(menu_usuario)
+        # --------------------------------------------------
+        # BANNER SUPERIOR
+        # --------------------------------------------------
+        self.banner = BannerNavegacion(usuario_actual=self.usuario_actual)
+        self.banner.panel_solicitado.connect(self._ir_a_panel)
+        self.banner.sesion_cerrada_solicitada.connect(self._cerrar_sesion)
 
-        self.stack = QStackedWidget()
+        # --------------------------------------------------
+        # PANELES
+        # --------------------------------------------------
+        self.panel_dashboard = PanelDashboard(
+            usuario_actual=self.usuario_actual,
+            habitacion_service=self.habitacion_service,
+            reserva_service=self.reserva_service,
+        )
+        self.panel_dashboard.navegar_a.connect(self._ir_a_panel)
+        self.panel_dashboard.registro_solicitado.connect(self._abrir_registro_huesped)
 
-        self.vista_catalogo = QWidget()
-        layout_principal = QVBoxLayout(self.vista_catalogo)
-        
-        layout_top = QHBoxLayout()
-        lbl_titulo = QLabel("<b>Catálogo de Habitaciones Disponibles</b>")
-        
-        self.btn_publicar = QPushButton("Publicar Habitación")
-        self.btn_publicar.setFixedHeight(35)
-        self.btn_publicar.clicked.connect(self._abrir_publicar_habitacion)
-        
-        if self.usuario_actual.get("rol") not in ("admin", "administrador"):
-            self.btn_publicar.setVisible(False)
+        self.panel_catalogo = PanelCatalogo(
+            usuario_actual=self.usuario_actual,
+            habitacion_service=self.habitacion_service,
+            al_abrir_detalle=self._abrir_detalle_habitacion,
+            al_editar_habitacion=self._abrir_admin_habitacion,
+        )
+        self.panel_catalogo.catalogo_modificado.connect(self._al_modificar_catalogo)
 
-        layout_top.addWidget(lbl_titulo)
-        layout_top.addStretch()
-        layout_top.addWidget(self.btn_publicar)
-        layout_top.addSpacing(15)
-        layout_top.addWidget(self.btn_usuario)
-        
-        layout_principal.addLayout(layout_top)
-
-        self.lista_habitaciones = QListWidget()
-        self.lista_habitaciones.setSpacing(8) 
-        layout_principal.addWidget(self.lista_habitaciones)
+        self.panel_recepcion = PanelRecepcion(
+            usuario_actual=self.usuario_actual,
+            reserva_service=self.reserva_service,
+        )
+        self.panel_recepcion.registro_solicitado.connect(self._abrir_registro_huesped)
+        self.panel_recepcion.ocupacion_cambiada.connect(self.refrescar_paneles)
 
         self.vista_detalle = DetalleHabitacionWidget(
             al_volver_callback=self._volver_al_catalogo,
             usuario_actual=self.usuario_actual,
-            habitacion_service=self.habitacion_service
-        )
-
-        self.stack.addWidget(self.vista_catalogo)
-        self.stack.addWidget(self.vista_detalle)
-
-        self.setCentralWidget(self.stack)
-        self.actualizar_catalogo()
-
-    def _cerrar_sesion(self):
-        """Cierra la ventana principal"""
-        self.close()
-
-    def _abrir_publicar_habitacion(self):
-        self.ventana_admin = AdminWindow(
             habitacion_service=self.habitacion_service,
-            al_actualizar_callback=self.actualizar_catalogo
+            reserva_service=self.reserva_service,
         )
-        self.ventana_admin.show()
+        self.vista_detalle.registro_solicitado.connect(self._abrir_registro_huesped)
 
-    def _abrir_editar_habitacion(self, habitacion: dict):
-        self.ventana_admin = AdminWindow(
-            habitacion_service=self.habitacion_service,
-            al_actualizar_callback=self.actualizar_catalogo,
-            habitacion_a_editar=habitacion
-        )
-        self.ventana_admin.show()
+        self.paneles = {
+            "dashboard": self.panel_dashboard,
+            "catalogo": self.panel_catalogo,
+            "recepcion": self.panel_recepcion,
+            self.PANEL_DETALLE: self.vista_detalle,
+        }
 
-    def _eliminar_habitacion(self, habitacion: dict):
-        confirmacion = QMessageBox.question(
-            self,
-            "Confirmar eliminación",
-            f"¿Estás seguro de que deseas eliminar la habitación {habitacion.get('numero')}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
+        self.stack = QStackedWidget()
+        for panel in self.paneles.values():
+            self.stack.addWidget(panel)
 
-        if confirmacion == QMessageBox.StandardButton.Yes:
-            exito, mensaje = self.habitacion_service.eliminar_habitacion(
-                numero=habitacion.get("numero"),
-                habitacion_id=habitacion.get("id")
-            )
-            if not exito:
-                QMessageBox.warning(self, "Error", mensaje)
-                return
-            QMessageBox.information(self, "Éxito", mensaje)
-            self.actualizar_catalogo()
+        layout_principal = QVBoxLayout()
+        layout_principal.setContentsMargins(0, 0, 0, 0)
+        layout_principal.setSpacing(0)
+        layout_principal.addWidget(self.banner)
+        layout_principal.addWidget(self.stack, stretch=1)
 
-    def _mostrar_detalles(self, habitacion: dict):
-        self.vista_detalle.cargar_datos(habitacion)
-        es_cliente = self.usuario_actual.get("rol") not in ("admin", "administrador")
-        self.vista_detalle.configurar_modo(es_cliente)
-        self.stack.setCurrentWidget(self.vista_detalle)
+        contenedor = QWidget()
+        contenedor.setLayout(layout_principal)
+        self.setCentralWidget(contenedor)
+
+        # El refresco periódico no debe pisar un formulario abierto: mientras el
+        # administrador edita, el inventario puede cambiar y borrarle los datos.
+        self.timer_refresco = QTimer(self)
+        self.timer_refresco.setInterval(self.INTERVALO_REFRESCO_MS)
+        self.timer_refresco.timeout.connect(self._refresco_periodico)
+        self.timer_refresco.start()
+
+        self._ir_a_panel("dashboard")
+
+    # ------------------------------------------------------------------
+    # NAVEGACIÓN
+    # ------------------------------------------------------------------
+    def _ir_a_panel(self, clave):
+        panel = self.paneles.get(clave)
+        if not panel:
+            return
+
+        self.stack.setCurrentWidget(panel)
+
+        if clave != self.PANEL_DETALLE:
+            self.banner.set_panel_activo(clave)
+        else:
+            self.banner.set_panel_activo("catalogo")
+
+        self.refrescar_paneles()
+
+    def refrescar_paneles(self):
+        """Mantiene sincronizados los paneles con el estado real de la base de datos."""
+        self.panel_dashboard.refrescar()
+        self.panel_catalogo.refrescar()
+        self.panel_recepcion.refrescar()
+
+    def _al_modificar_catalogo(self):
+        """Renueva el tablero y recepción; el catálogo ya se refrescó en su propia señal."""
+        self.panel_dashboard.refrescar()
+        self.panel_recepcion.refrescar()
+
+    def _refresco_periodico(self):
+        """Mantiene la ocupación al día aunque nadie navegue por los paneles."""
+        if not self.isVisible():
+            return
+        if self.ventana_admin is not None:
+            return
+        # La ficha abierta puede estar recien llenándose: no se toca.
+        if self.stack.currentWidget() is self.vista_detalle:
+            return
+
+        try:
+            self.refrescar_paneles()
+        except Exception:
+            # Un fallo puntual de red no debe cerrar la sesión del empleado.
+            pass
 
     def _volver_al_catalogo(self):
-        self.stack.setCurrentWidget(self.vista_catalogo)
+        self.habitacion_en_detalle = None
+        self._ir_a_panel("catalogo")
 
-    def actualizar_catalogo(self):
-        self.lista_habitaciones.clear()
-        habitaciones = self.habitacion_service.obtener_todas()
-        es_admin = self.usuario_actual.get("rol") in ("admin", "administrador")
+    # ------------------------------------------------------------------
+    # CATÁLOGO
+    # ------------------------------------------------------------------
+    def _abrir_detalle_habitacion(self, habitacion):
+        self.habitacion_en_detalle = habitacion
+        self.vista_detalle.cargar_datos(habitacion)
+        self._ir_a_panel(self.PANEL_DETALLE)
 
-        for hab in habitaciones:
-            item = QListWidgetItem(self.lista_habitaciones)
-            item.setSizeHint(QSize(0, 110)) 
+    # ------------------------------------------------------------------
+    # ALTA DE HUÉSPED
+    # ------------------------------------------------------------------
+    def _abrir_registro_huesped(self, habitacion_preseleccionada: dict = None):
+        """Abre el formulario de registro de huésped.
 
-            widget_tarjeta = TarjetaHabitacion(hab, es_admin=es_admin)
-            widget_tarjeta.detalles_solicitados.connect(self._mostrar_detalles)
+        Es el flujo principal de recepción: se llama desde el botón de la mesa
+        de trabajo, desde el tablero y desde la ficha de una habitación.
+        """
+        if self.dialogo_registro is not None:
+            self.dialogo_registro.raise_()
+            self.dialogo_registro.activateWindow()
+            return self.dialogo_registro
 
-            if es_admin:
-                widget_tarjeta.editar_solicitado.connect(self._abrir_editar_habitacion)
-                widget_tarjeta.eliminar_solicitado.connect(self._eliminar_habitacion)
-            self.lista_habitaciones.addItem(item)
-            self.lista_habitaciones.setItemWidget(item, widget_tarjeta)
+        dialogo = RegistroHuespedDialog(
+            usuario_actual=self.usuario_actual,
+            habitacion_service=self.habitacion_service,
+            reserva_service=self.reserva_service,
+            habitacion_preseleccionada=habitacion_preseleccionada,
+            parent=self,
+        )
+        dialogo.reserva_registrada.connect(self._al_registrar_huesped)
+        dialogo.finished.connect(self._al_cerrar_registro)
+        self.dialogo_registro = dialogo
+        dialogo.exec()
+        return dialogo
+
+    def _al_cerrar_registro(self, _codigo):
+        self.dialogo_registro = None
+
+    def _al_registrar_huesped(self, reserva: dict, mensaje: str):
+        """Confirma el alta y renueva tablero, catálogo y recepción."""
+        QMessageBox.information(self, "Huésped registrado", mensaje)
+        self.refrescar_paneles()
+
+    def _abrir_admin_habitacion(self, habitacion):
+        if not puede_administrar_catalogo(self.usuario_actual):
+            return
+
+        self.ventana_admin = AdminWindow(
+            habitacion_service=self.habitacion_service,
+            usuario_actual=self.usuario_actual,
+            habitacion_a_editar=habitacion,
+            parent=self,
+        )
+        self.ventana_admin.guardado.connect(self.refrescar_paneles)
+        self.ventana_admin.destroyed.connect(self._al_cerrar_admin)
+        self.ventana_admin.show()
+        self.ventana_admin.raise_()
+        self.ventana_admin.activateWindow()
+
+    def _al_cerrar_admin(self):
+        """Libera la referencia al formulario de administración ya destruido."""
+        self.ventana_admin = None
+
+    # ------------------------------------------------------------------
+    # SESIÓN
+    # ------------------------------------------------------------------
+    def _cerrar_sesion(self):
+        # Se detiene el refresco para no consultar la base con la sesión cerrada.
+        self.timer_refresco.stop()
+        self.sesion_cerrada.emit()
+
+    def closeEvent(self, event):
+        """Cierra los cuadros secundarios y detiene el refresco antes de destruirlos."""
+        self.timer_refresco.stop()
+        if self.ventana_admin:
+            self.ventana_admin.close()
+        super().closeEvent(event)
