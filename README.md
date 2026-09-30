@@ -179,6 +179,21 @@ gestionar cualquier reserva sin tener que filtrar por fecha. Las filas cuya
 fecha de entrada aún no llega no ofrecen «Marcar como ocupada», porque el
 huésped no puede alojarse antes de tiempo; sí pueden cancelarse.
 
+El orden de esa mesa lo impone la consulta, no la interfaz: primero las reservas
+**pendientes y confirmadas** (las que esperan al huésped), después las
+**iniciadas**, luego las **canceladas** y al final las **finalizadas**; dentro de
+cada grupo, la fecha de entrada más antigua primero. Así el personal ve primero
+lo que tiene que atender.
+
+Sobre esa mesa hay una barra con un buscador y un filtro por estado
+(`txt_buscar` y `cmb_filtro_estado`). Ambos trabajan **en tiempo real y sobre las
+filas ya cargadas**: la búsqueda (huésped, habitación, documento, teléfono, correo,
+pago) y el estado se combinan, y cada fila se muestra u oculta con
+`setRowHidden` sin volver a consultar MySQL. La etiqueta de la barra indica
+cuántas reservas están visibles de las cargadas. El filtro sobrevive al refresco
+periódico, de modo que recargar la mesa no borra lo que el usuario estaba
+buscando.
+
 «Huéspedes alojados» responde a una pregunta distinta: *¿quién está dentro del
 hotel?* Solo lista reservas `Iniciada` cuya fecha de entrada no sea futura, y por
 construcción **cada habitación ocupada aparece una sola vez**. Es exactamente la

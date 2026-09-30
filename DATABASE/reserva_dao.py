@@ -7,8 +7,35 @@ from mysql.connector import Error
 class ReservaDAO:
     """DAO de la tabla Reserva: estancias, ingresos y salidas."""
 
+    # Prioridad de cada estado en las mesas de trabajo de recepción. El número
+    # es el orden en que se muestran: lo que el personal todavía tiene que
+    # atender va primero y lo que ya se cerró va al final. «Pendiente» y
+    # «Confirmada» comparten prioridad porque las dos esperan al huésped.
+    PRIORIDAD_ESTADOS = {
+        "Pendiente": 1,
+        "Confirmada": 1,
+        "Iniciada": 2,
+        "Cancelada": 3,
+        "Finalizada": 4,
+    }
+
     def __init__(self):
         self.db = ConexionBD()
+
+    def _orden_prioridad(self):
+        """Arma el ORDER BY que impone la jerarquía de estados en MySQL.
+
+        Se construye con un CASE porque el campo `estado` es un ENUM guardado
+        como texto: MySQL los ordena por orden alfabético («Cancelada» antes que
+        «Confirmada» de la entrada), no por el orden en que le interesa al hotel.
+        """
+        casos = " ".join(
+            f"WHEN '{estado}' THEN {prioridad}"
+            for estado, prioridad in self.PRIORIDAD_ESTADOS.items()
+        )
+        # El 99 es para cualquier estado que se agregue en el futuro: queda al
+        # final de la mesa en vez de intercalarse en medio de los conocidos.
+        return f"CASE r.estado {casos} ELSE 99 END"
 
     def registrar_reserva(
         self,
@@ -288,6 +315,10 @@ class ReservaDAO:
         Es el listado completo del hotel. Antes la interfaz solo consultaba las
         llegadas del día, así que una reserva para dentro de un mes no aparecía
         en ninguna parte del sistema y parecía no existir.
+
+        El orden jerárquico por estado lo impone la propia consulta, de modo que
+        quien llama siempre recibe la mesa igual y ordenada sin tener que
+        reacomodar los datos en Python.
         """
         return self._listar("", incluir_canceladas=True)
 
@@ -303,6 +334,10 @@ class ReservaDAO:
 
         Por defecto se esconden las canceladas, porque las mesas de trabajo son
         del día. El listado histórico las necesita, de ahí el interruptor.
+
+        Todas las listas salen con el mismo orden: primero por la prioridad del
+        estado y después por fecha de entrada ascendente, para que a igualdad de
+        estado se vea primero la reserva que entra antes.
         """
         conexion = self.db.conectar()
         if not conexion:
@@ -327,7 +362,7 @@ class ReservaDAO:
             LEFT JOIN Usuario s ON s.id = r.checkin_empleado_id
             LEFT JOIN Usuario f ON f.id = r.salida_empleado_id
             WHERE {condiciones or "1 = 1"}
-            ORDER BY r.fecha_entrada, h.no_habitacion, r.id
+            ORDER BY {self._orden_prioridad()}, r.fecha_entrada, h.no_habitacion, r.id
         """
 
         try:

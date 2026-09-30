@@ -24,6 +24,18 @@ class ReservaService:
         "Transferencia Bancaria",
     ]
 
+    # Estados posibles de una reserva, ya en el orden en que la mesa de trabajo
+    # los presenta: primero los que esperan al huésped, luego los ya cerrados.
+    # La interfaz usa esta lista para armar el filtro de estado, así que el
+    # orden y los nombres nunca se escriben a mano en dos lugares distintos.
+    ESTADOS_RESERVA = [
+        "Pendiente",
+        "Confirmada",
+        "Iniciada",
+        "Cancelada",
+        "Finalizada",
+    ]
+
     def __init__(self):
         self.dao = ReservaDAO()
 
@@ -158,7 +170,12 @@ class ReservaService:
     def obtener_reservas(self):
         """Listado completo: toda reserva, sea de la fecha que sea y esté en el
         estado que esté. Sin esto, una reserva futura no aparecía en ninguna
-        parte del sistema."""
+        parte del sistema.
+
+        El orden jerárquico por estado lo garantiza la consulta: pendiente y
+        confirmada, luego iniciadas, después canceladas y al final finalizadas,
+        y dentro de cada grupo la fecha de entrada más antigua primero.
+        """
         return self.dao.obtener_todas()
 
     def obtener_reservas_habitacion(self, habitacion_id):

@@ -211,6 +211,40 @@ ESTILO_PANEL = """
         padding: 0 6px;
         color: #1f2d3d;
     }
+    /* Buscador y filtro de las mesas de trabajo. Sin estilo propio los campos
+       heredan el aspecto del sistema y rompen el azul de la barra. */
+    QLineEdit#campoFiltro {
+        background-color: #ffffff;
+        color: #1f2d3d;
+        border: 1px solid #c3ccd6;
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-size: 12px;
+    }
+    QLineEdit#campoFiltro:focus {
+        border: 1px solid #2f6fb0;
+    }
+    QComboBox#campoFiltro {
+        background-color: #ffffff;
+        color: #1f2d3d;
+        border: 1px solid #c3ccd6;
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-size: 12px;
+    }
+    QComboBox#campoFiltro:hover {
+        background-color: #eef2f6;
+    }
+    QComboBox#campoFiltro::drop-down {
+        border: none;
+    }
+    QComboBox#campoFiltro QAbstractItemView {
+        background-color: #ffffff;
+        border: 1px solid #c3ccd6;
+        selection-background-color: #d6e6f7;
+        selection-color: #1f2d3d;
+        font-size: 12px;
+    }
 """
 
 ESTILO_TABLA = """

@@ -2,10 +2,12 @@
 from datetime import date
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QAbstractItemView
+    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QAbstractItemView,
+    QLineEdit, QComboBox
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
+from services.reserva_service import ReservaService
 from utils.stylesheets import COLORES_ESTATUS, ESTILO_PANEL, ESTILO_TABLA
 
 class PanelRecepcion(QWidget):
@@ -104,6 +106,11 @@ class PanelRecepcion(QWidget):
         grupo_reservas.setObjectName("seccion")
         layout_reservas = QVBoxLayout(grupo_reservas)
         layout_reservas.setContentsMargins(14, 18, 14, 14)
+        layout_reservas.setSpacing(10)
+
+        # La barra va sobre la tabla: es la mesa que más filas maneja, así que
+        # es la que necesita poder recortarse sin volver a preguntar a MySQL.
+        layout_reservas.addWidget(self._crear_barra_reservas())
 
         self.tabla_reservas = self._crear_tabla(
             ["Hab.", "Huésped", "Entrada", "Salida", "Pago", "Total", "Estado", ""]
@@ -126,6 +133,51 @@ class PanelRecepcion(QWidget):
         layout.addWidget(grupo_reservas, stretch=1)
         layout.addWidget(grupo_casa, stretch=1)
         return layout
+
+    def _crear_barra_reservas(self):
+        """Barra de búsqueda y filtro de la mesa de reservas.
+
+        Los dos controles se conectan al mismo método: escribir o cambiar el
+        estado esconde y muestra filas, sin volver a consultar la base de datos.
+        """
+        barra = QWidget()
+        layout = QHBoxLayout(barra)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self.txt_buscar = QLineEdit()
+        self.txt_buscar.setObjectName("campoFiltro")
+        self.txt_buscar.setPlaceholderText("Buscar por huésped, habitación o documento...")
+        self.txt_buscar.setClearButtonEnabled(True)
+        self.txt_buscar.setFixedHeight(30)
+        self.txt_buscar.setToolTip("Filtra la mesa mientras escribe, sin recargar la base de datos.")
+        self.txt_buscar.textChanged.connect(self.filtrar_tabla_reservas)
+        layout.addWidget(self.txt_buscar, stretch=1)
+
+        self.cmb_filtro_estado = QComboBox()
+        self.cmb_filtro_estado.setObjectName("campoFiltro")
+        self.cmb_filtro_estado.addItem("Todos los estados", "")
+        # Los estados se piden al servicio, que es quien los conoce: así el
+        # filtro no puede quedar desactualizado si la base agrega uno nuevo.
+        for estado in ReservaService.ESTADOS_RESERVA:
+            self.cmb_filtro_estado.addItem(
+                self.ETIQUETAS_ESTADO.get(estado, estado), estado
+            )
+        self.cmb_filtro_estado.setFixedHeight(30)
+        self.cmb_filtro_estado.setToolTip("Muestra solo las reservas del estado elegido.")
+        self.cmb_filtro_estado.currentIndexChanged.connect(self.filtrar_tabla_reservas)
+        layout.addWidget(self.cmb_filtro_estado)
+
+        # Aviso de cuántas filas quedan visibles: si el filtro no arroja nada,
+        # la mesa se ve vacía y sin esta etiqueta no se sabría si es un error o
+        # simplemente no hay coincidencias.
+        self.lbl_conteo = QLabel("")
+        self.lbl_conteo.setObjectName("panelSubtitulo")
+        self.lbl_conteo.setMinimumWidth(150)
+        self.lbl_conteo.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.lbl_conteo)
+
+        return barra
 
     def _crear_tabla(self, encabezados):
         tabla = QTableWidget(0, len(encabezados))
@@ -165,6 +217,10 @@ class PanelRecepcion(QWidget):
             self.reserva_service.obtener_en_casa(),
             self._acciones_huesped,
         )
+
+        # La mesa vuelve a tener filas nuevas, así que el filtro que el usuario
+        # tenía puesto se reaplica: recargar no debe borrar la búsqueda.
+        self.filtrar_tabla_reservas()
 
     def _acciones_reserva(self, reserva):
         """Acciones que admite una reserva según su estado y su fecha.
@@ -210,6 +266,8 @@ class PanelRecepcion(QWidget):
     def _llenar_tabla(self, tabla, reservas, acciones_por_reserva):
         tabla.setRowCount(0)
 
+        # Esta fila es un aviso, no una reserva: no lleva datos de búsqueda
+        # asociados, y por eso el filtro la deja siempre a la vista.
         if not reservas:
             item = QTableWidgetItem("Sin registros para mostrar.")
             item.setForeground(QColor("#8a97a6"))
@@ -237,6 +295,12 @@ class PanelRecepcion(QWidget):
                     fuente = item.font()
                     fuente.setBold(True)
                     item.setFont(fuente)
+                    # La fila guarda su propia reserva: así el filtro puede
+                    # decidir qué esconder sin volver a preguntarle a MySQL.
+                    item.setData(Qt.ItemDataRole.UserRole, {
+                        "estado": reserva["estado"],
+                        "texto": self._texto_buscable(reserva),
+                    })
                 tabla.setItem(fila, columna, item)
 
             estado_item = QTableWidgetItem(
@@ -273,6 +337,60 @@ class PanelRecepcion(QWidget):
             if len(acciones) > 1:
                 tabla.setRowHeight(fila, 68)
             tabla.setCellWidget(fila, 7, contenedor_botones)
+
+    @staticmethod
+    def _texto_buscable(reserva) -> str:
+        """Texto en minúsculas con todo por lo que se puede buscar una reserva.
+
+        Se arma una sola vez por fila, al llenar la tabla, para que al escribir
+        en el buscador no haya que volver a recorrer los datos de cada reserva.
+        """
+        partes = [
+            str(reserva["habitacion_numero"]),
+            reserva["cliente"],
+            reserva["identificacion"],
+            reserva["contacto"],
+            reserva["correo_electronico"],
+            reserva["metodo_pago"],
+            reserva["estado"],
+        ]
+        return " ".join(partes).lower()
+
+    def filtrar_tabla_reservas(self, *_):
+        """Muestra u oculta filas según la búsqueda y el estado elegido.
+
+        La mesa ya tiene cargadas todas las reservas, así que el filtro solo
+        recorre las filas y les cambia la visibilidad. No vuelve a consultar la
+        base de datos, y por eso responde mientras el usuario escribe.
+        """
+        texto = self.txt_buscar.text().strip().lower()
+        estado = self.cmb_filtro_estado.currentData()
+
+        total = 0
+        visibles = 0
+        for fila in range(self.tabla_reservas.rowCount()):
+            celda = self.tabla_reservas.item(fila, 0)
+            if celda is None:
+                continue
+
+            datos = celda.data(Qt.ItemDataRole.UserRole)
+            if not isinstance(datos, dict):
+                # Fila de aviso: no es una reserva, se deja como está.
+                continue
+
+            total += 1
+            coincide_texto = not texto or texto in datos["texto"]
+            coincide_estado = not estado or datos["estado"] == estado
+            coincide = coincide_texto and coincide_estado
+
+            self.tabla_reservas.setRowHidden(fila, not coincide)
+            if coincide:
+                visibles += 1
+
+        if total == 0:
+            self.lbl_conteo.setText("")
+        else:
+            self.lbl_conteo.setText(f"{visibles} de {total} reservas")
 
     # ------------------------------------------------------------------
     # ACCIONES DE RECEPCIÓN
