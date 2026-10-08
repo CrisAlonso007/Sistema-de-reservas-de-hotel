@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDateEdit, QDialog, QFor
 from services.reserva_service import ReservaService
 from utils.stylesheets import (ESTILO_CAMPO_INVALIDO, ESTILO_CAMPO_VALIDO, ESTILO_PANEL,
 )
-from utils.validaciones import (es_identificacion_valida, es_texto_valido, validar_correo, 
+from utils.validaciones import (es_identificacion_valida, es_texto_valido,
                                 validar_nombre_completo, validar_telefono,
                                 )
 
@@ -147,12 +147,10 @@ class RegistroHuespedDialog(QDialog):
         self.txt_cliente = self._crear_campo("Nombre completo del huésped *", 100)
         self.txt_identificacion = self._crear_campo("Documento de identidad *", 30)
         self.txt_contacto = self._crear_campo("Teléfono *", 30)
-        self.txt_correo = self._crear_campo("Correo electrónico *", 120)
 
         layout.addRow(self._etiqueta("Huésped:"), self.txt_cliente)
         layout.addRow(self._etiqueta("Identificación:"), self.txt_identificacion)
         layout.addRow(self._etiqueta("Teléfono:"), self.txt_contacto)
-        layout.addRow(self._etiqueta("Correo:"), self.txt_correo)
 
         nota = QLabel("Los campos con * son obligatorios.")
         nota.setStyleSheet("font-size: 11px; color: #7f8c8d;")
@@ -251,7 +249,6 @@ class RegistroHuespedDialog(QDialog):
         self.txt_cliente.setStyleSheet(ESTILO_CAMPO_VALIDO if valido else ESTILO_CAMPO_INVALIDO)
         self.txt_identificacion.setStyleSheet(ESTILO_CAMPO_VALIDO if valido else ESTILO_CAMPO_INVALIDO)
         self.txt_contacto.setStyleSheet(ESTILO_CAMPO_VALIDO if valido else ESTILO_CAMPO_INVALIDO)
-        self.txt_correo.setStyleSheet(ESTILO_CAMPO_VALIDO if valido else ESTILO_CAMPO_INVALIDO)
 
     def _etiqueta(self, texto):
         etiqueta = QLabel(texto)
@@ -394,12 +391,10 @@ class RegistroHuespedDialog(QDialog):
         cliente = self.txt_cliente.text().strip()
         identificacion = self.txt_identificacion.text().strip()
         contacto = self.txt_contacto.text().strip()
-        correo = self.txt_correo.text().strip()
 
         if not (validar_nombre_completo(cliente)
                 and es_identificacion_valida(identificacion)
-                and validar_telefono(contacto)
-                and validar_correo(correo)):
+                and validar_telefono(contacto)):
             self._pintar_campos(False)
             faltantes = []
             if not es_texto_valido(cliente, longitud_minima=2):
@@ -408,8 +403,6 @@ class RegistroHuespedDialog(QDialog):
                 faltantes.append("un documento de identidad válido")
             if not validar_telefono(contacto):
                 faltantes.append("un teléfono válido")
-            if not validar_correo(correo):
-                faltantes.append("un correo válido")
 
             QMessageBox.warning(
                 self,
@@ -421,10 +414,8 @@ class RegistroHuespedDialog(QDialog):
                 self.txt_cliente.setFocus()
             elif not es_identificacion_valida(identificacion):
                 self.txt_identificacion.setFocus()
-            elif not validar_telefono(contacto):
-                self.txt_contacto.setFocus()
             else:
-                self.txt_correo.setFocus()
+                self.txt_contacto.setFocus()
             return
 
         self._pintar_campos(True)
@@ -435,7 +426,6 @@ class RegistroHuespedDialog(QDialog):
             cliente=cliente,
             identificacion=identificacion,
             contacto=contacto,
-            correo=correo,
             noches=self.txt_noches.value(),
             fecha_entrada=entrada.toString("yyyy-MM-dd"),
             fecha_salida=salida.toString("yyyy-MM-dd"),

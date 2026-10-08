@@ -6,7 +6,6 @@ from utils.permisos import sesion_valida
 from utils.validaciones import (
     es_identificacion_valida,
     es_noches_valida,
-    validar_correo,
     validar_nombre_completo,
     validar_telefono,
 )
@@ -25,12 +24,11 @@ class ReservaService:
     ]
 
     # Estados posibles de una reserva, ya en el orden en que la mesa de trabajo
-    # los presenta: primero los que esperan al huésped, luego los ya cerrados.
+    # los presenta: primero las reservas que esperan al huésped, luego las cerradas.
     # La interfaz usa esta lista para armar el filtro de estado, así que el
     # orden y los nombres nunca se escriben a mano en dos lugares distintos.
     ESTADOS_RESERVA = [
         "Pendiente",
-        "Confirmada",
         "Iniciada",
         "Cancelada",
         "Finalizada",
@@ -56,7 +54,6 @@ class ReservaService:
         cliente,
         identificacion,
         contacto,
-        correo,
         noches,
         fecha_entrada,
         fecha_salida,
@@ -64,67 +61,58 @@ class ReservaService:
         habitacion_id,
         ingreso_inmediato=False,
     ) -> tuple[bool, str]:
-        """Captura los datos del huésped y abre su estancia.
-
-        Con `ingreso_inmediato` el huésped se aloja en el acto: la habitación
-        queda ocupada de inmediato. Sin él, la estancia queda como reserva para
-        las fechas elegidas. El total lo calcula el servidor.
-        """
-        empleado_id = self._empleado_de_sesion(usuario_actual)
+        """Captura los datos del huésped y abre su estancia."""
+        empleado_id = self._empleado_de_sesion(usuario_actual) #
         if empleado_id is None:
-            return False, "No hay una sesión de personal válida para registrar la reserva."
+            return False, "No hay una sesión de personal válida para registrar la reserva." #[cite: 5]
 
-        if metodo_pago not in self.METODOS_PAGO:
-            return False, "El método de pago seleccionado no es válido."
+        if metodo_pago not in self.METODOS_PAGO: #[cite: 5]
+            return False, "El método de pago seleccionado no es válido." #[cite: 5]
 
-        if not es_noches_valida(noches):
-            return False, "La cantidad de noches debe ser un número mayor a cero."
+        if not es_noches_valida(noches): #[cite: 5]
+            return False, "La cantidad de noches debe ser un número mayor a cero." #[cite: 5]
 
-        if not validar_nombre_completo(cliente):
-            return False, "El nombre del huésped no es válido."
+        if not validar_nombre_completo(cliente): #[cite: 5]
+            return False, "El nombre del huésped no es válido." #[cite: 5]
 
-        if not es_identificacion_valida(identificacion):
-            return False, "El número de identificación no es válido."
+        if not es_identificacion_valida(identificacion): #[cite: 5]
+            return False, "El número de identificación no es válido." #[cite: 5]
 
-        if not validar_telefono(contacto):
-            return False, "El número de contacto no es válido."
+        if not validar_telefono(contacto): #[cite: 5]
+            return False, "El número de contacto no es válido." #[cite: 5]
 
-        if not validar_correo(correo):
-            return False, "El correo electrónico no es válido."
-
-        entrada, error_entrada = self._parsear_fecha(fecha_entrada)
+        entrada, error_entrada = self._parsear_fecha(fecha_entrada) #[cite: 5]
         if error_entrada:
-            return False, error_entrada
+            return False, error_entrada #[cite: 5]
 
-        salida, error_salida = self._parsear_fecha(fecha_salida)
+        salida, error_salida = self._parsear_fecha(fecha_salida) #[cite: 5]
         if error_salida:
-            return False, error_salida
+            return False, error_salida #[cite: 5]
 
-        if salida <= entrada:
-            return False, "La fecha de salida debe ser posterior a la fecha de entrada."
+        if salida <= entrada: #[cite: 5]
+            return False, "La fecha de salida debe ser posterior a la fecha de entrada." #[cite: 5]
 
-        if entrada < datetime.today().date():
-            return False, "La fecha de entrada no puede ser anterior a hoy."
+        if entrada < datetime.today().date(): #[cite: 5]
+            return False, "La fecha de entrada no puede ser anterior a hoy." #[cite: 5]
 
-        if ingreso_inmediato and entrada != datetime.today().date():
-            return False, "El hospedaje inmediato solo puede registrarse con la fecha de hoy."
+        if ingreso_inmediato and entrada != datetime.today().date(): #[cite: 5]
+            return False, "El hospedaje inmediato solo puede registrarse con la fecha de hoy." #[cite: 5]
 
-        noches_calculadas = (salida - entrada).days
-        if noches_calculadas != int(noches):
-            return False, "La cantidad de noches no coincide con el rango de fechas."
+        noches_calculadas = (salida - entrada).days #[cite: 5]
+        if noches_calculadas != int(noches): #[cite: 5]
+            return False, "La cantidad de noches no coincide con el rango de fechas." #[cite: 5]
 
         return self.dao.registrar_reserva(
-            cliente=str(cliente).strip(),
-            identificacion=str(identificacion).strip(),
-            contacto=str(contacto).strip(),
-            correo=str(correo).strip(),
-            noches=noches_calculadas,
-            fecha_entrada=entrada,
-            fecha_salida=salida,
-            metodo_pago=metodo_pago,
-            empleado_id=empleado_id,
-            habitacion_id=habitacion_id,
-            ingreso_inmediato=bool(ingreso_inmediato),
+            cliente=str(cliente).strip(), #[cite: 5]
+            identificacion=str(identificacion).strip(), #[cite: 5]
+            contacto=str(contacto).strip(), #[cite: 5]
+            noches=noches_calculadas, #[cite: 5]
+            fecha_entrada=entrada, #[cite: 5]
+            fecha_salida=salida, #[cite: 5]
+            metodo_pago=metodo_pago, #[cite: 5]
+            empleado_id=empleado_id, #[cite: 5]
+            habitacion_id=habitacion_id, #[cite: 5]
+            ingreso_inmediato=bool(ingreso_inmediato), #[cite: 5]
         )
 
     def registrar_checkin(self, usuario_actual: dict, reserva_id) -> tuple[bool, str]:
@@ -172,8 +160,8 @@ class ReservaService:
         estado que esté. Sin esto, una reserva futura no aparecía en ninguna
         parte del sistema.
 
-        El orden jerárquico por estado lo garantiza la consulta: pendiente y
-        confirmada, luego iniciadas, después canceladas y al final finalizadas,
+        El orden jerárquico por estado lo garantiza la consulta: pendientes,
+        luego iniciadas, después canceladas y al final finalizadas,
         y dentro de cada grupo la fecha de entrada más antigua primero.
         """
         return self.dao.obtener_todas()

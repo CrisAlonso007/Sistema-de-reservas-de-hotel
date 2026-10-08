@@ -144,7 +144,7 @@ class HabitacionDAO:
                     WHEN EXISTS (
                         SELECT 1 FROM Reserva r
                         WHERE r.habitacion_id = h.id
-                        AND r.estado IN ('Pendiente', 'Confirmada')
+                        AND r.estado = 'Pendiente'
                         AND r.fecha_entrada <= CURDATE()
                         AND r.fecha_salida >= CURDATE()
                     ) THEN 'Reservado'
@@ -171,7 +171,7 @@ class HabitacionDAO:
 
         Hay dos reglas distintas según el estado de la estancia:
 
-        - Pendiente o Confirmada es solo una reserva: usa intervalos abiertos,
+        - Pendiente es una reserva: usa intervalos abiertos,
           así que una salida el mismo día que la siguiente entrada no choca.
         - Iniciada significa que el huésped ya está dentro. La habitación no se
           libera por calendario, sino cuando el recepcionista registra la
@@ -191,7 +191,7 @@ class HabitacionDAO:
                 WHERE r.habitacion_id = h.id
                 AND (
                     (
-                        r.estado IN ('Pendiente', 'Confirmada')
+                        r.estado = 'Pendiente'
                         AND r.fecha_entrada < %s
                         AND r.fecha_salida > %s
                     )
@@ -238,7 +238,7 @@ class HabitacionDAO:
                     WHEN EXISTS (
                         SELECT 1 FROM Reserva r
                         WHERE r.habitacion_id = h.id
-                        AND r.estado IN ('Pendiente', 'Confirmada')
+                        AND r.estado = 'Pendiente'
                         AND r.fecha_entrada <= CURDATE()
                         AND r.fecha_salida >= CURDATE()
                     ) THEN 'Reservado'

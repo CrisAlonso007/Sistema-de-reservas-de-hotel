@@ -81,7 +81,6 @@ class PanelDashboard(QWidget):
 
         textos = QVBoxLayout()
         textos.setSpacing(2)
-
         lbl_titulo = QLabel("Panel de Control")
         lbl_titulo.setObjectName("panelTitulo")
         textos.addWidget(lbl_titulo)
@@ -105,19 +104,6 @@ class PanelDashboard(QWidget):
         self.btn_registrar.setToolTip("Registra al cliente que acaba de llegar.")
         self.btn_registrar.clicked.connect(self.registro_solicitado.emit)
         layout.addWidget(self.btn_registrar)
-
-        btn_recepcion = QPushButton("Ir a Recepción")
-        btn_recepcion.setObjectName("accionSecundaria")
-        btn_recepcion.setCursor(Qt.PointingHandCursor)
-        btn_recepcion.clicked.connect(lambda: self.navegar_a.emit("recepcion"))
-        layout.addWidget(btn_recepcion)
-
-        if self.usuario_actual.get("rol") == "administrador":
-            btn_catalogo = QPushButton("Gestionar Catálogo")
-            btn_catalogo.setObjectName("accionSecundaria")
-            btn_catalogo.setCursor(Qt.PointingHandCursor)
-            btn_catalogo.clicked.connect(lambda: self.navegar_a.emit("catalogo"))
-            layout.addWidget(btn_catalogo)
 
         return contenedor
 

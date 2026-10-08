@@ -7,9 +7,7 @@
 CREATE DATABASE IF NOT EXISTS db_sistema_reserva
     CHARACTER SET utf8mb4
     COLLATE utf8mb4_unicode_ci;
-
 USE db_sistema_reserva;
-
 
 -- PERSONAL DEL HOTEL (recepcionistas y administradores)
 
@@ -49,13 +47,12 @@ CREATE TABLE IF NOT EXISTS Reserva (
     cliente VARCHAR(100) NOT NULL,
     identificacion VARCHAR(50) NOT NULL,
     contacto VARCHAR(50) NOT NULL,
-    correo_electronico VARCHAR(255) NOT NULL DEFAULT '',
     noches INT NOT NULL,
     fecha_entrada DATE NOT NULL,
     fecha_salida DATE NOT NULL,
     metodo_pago ENUM('Tarjeta de Crédito / Débito', 'Efectivo en Recepción', 'Transferencia Bancaria') NOT NULL,
     total DECIMAL(10,2) NOT NULL,
-    estado ENUM('Pendiente', 'Confirmada', 'Iniciada', 'Finalizada', 'Cancelada') NOT NULL DEFAULT 'Pendiente',
+    estado ENUM('Pendiente', 'Iniciada', 'Finalizada', 'Cancelada') NOT NULL DEFAULT 'Pendiente',
     habitacion_id INT NOT NULL,
     empleado_id INT NOT NULL,
     checkin_empleado_id INT NULL,
@@ -73,6 +70,15 @@ CREATE TABLE IF NOT EXISTS Reserva (
     CONSTRAINT chk_reserva_noches CHECK (noches > 0),
     CONSTRAINT chk_reserva_total CHECK (total >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Las reservas confirmadas se integran a Pendiente y se retira ese estado
+-- del ENUM, también en bases existentes que vuelvan a ejecutar este script.
+UPDATE Reserva
+SET estado = 'Pendiente'
+WHERE CAST(estado AS CHAR) = 'Confirmada';
+ALTER TABLE Reserva
+    MODIFY COLUMN estado ENUM('Pendiente', 'Iniciada', 'Finalizada', 'Cancelada')
+    NOT NULL DEFAULT 'Pendiente';
 
 INSERT INTO Usuario
 (username, passwrd, rol, nombre_completo, numero_identificacion, correo_electronico, numero_telefono, activo)
@@ -126,34 +132,33 @@ WHERE NOT EXISTS (
 -- RESERVAS DE EJEMPLO
 
 INSERT INTO Reserva
-(cliente, identificacion, contacto, correo_electronico, noches, fecha_entrada, fecha_salida,
+(cliente, identificacion, contacto, noches, fecha_entrada, fecha_salida,
  metodo_pago, total, estado, habitacion_id, empleado_id, checkin_empleado_id)
 SELECT * FROM (
-    SELECT 'Ana Torres Mendoza' AS cliente, 'CC-1020304050' AS identificacion, '310-555-1122' AS contacto,
-        'ana.torres@example.com' AS correo_electronico, 3 AS noches,
+    SELECT 'Ana Torres Mendoza' AS cliente, 'CC-1020304050' AS identificacion, '310-555-1122' AS contacto, 3 AS noches,
         CURDATE() AS fecha_entrada, DATE_ADD(CURDATE(), INTERVAL 3 DAY) AS fecha_salida,
         'Tarjeta de Crédito / Débito' AS metodo_pago, 285.00 AS total, 'Iniciada' AS estado,
         (SELECT id FROM registro_habitacion WHERE no_habitacion = 102) AS habitacion_id,
         (SELECT id FROM Usuario WHERE username = 'recepcion') AS empleado_id,
         (SELECT id FROM Usuario WHERE username = 'recepcion') AS checkin_empleado_id
     UNION ALL
-    SELECT 'Luis Ramírez Peña', 'CC-5060708010', '311-777-3344', 'luis.ramirez@example.com', 2,
+    SELECT 'Luis Ramírez Peña', 'CC-5060708010', '311-777-3344', 2,
         CURDATE(), DATE_ADD(CURDATE(), INTERVAL 2 DAY),
         'Efectivo en Recepción', 260.00, 'Iniciada',
         (SELECT id FROM registro_habitacion WHERE no_habitacion = 103),
         (SELECT id FROM Usuario WHERE username = 'recepcion'),
         (SELECT id FROM Usuario WHERE username = 'recepcion')
     UNION ALL
-    SELECT 'María Gómez Silva', 'CC-9010203040', '312-888-5566', 'maria.gomez@example.com', 4,
+    SELECT 'María Gómez Silva', 'CC-9010203040', '312-888-5566', 4,
         CURDATE(), DATE_ADD(CURDATE(), INTERVAL 4 DAY),
         'Transferencia Bancaria', 220.00, 'Pendiente',
         (SELECT id FROM registro_habitacion WHERE no_habitacion = 101),
         (SELECT id FROM Usuario WHERE username = 'recepcion'),
         NULL
     UNION ALL
-    SELECT 'Carlos Fernández Ruiz', 'CC-4050607080', '313-999-7788', 'carlos.fernandez@example.com', 1,
+    SELECT 'Carlos Fernández Ruiz', 'CC-4050607080', '313-999-7788', 1,
         DATE_ADD(CURDATE(), INTERVAL 1 DAY), DATE_ADD(CURDATE(), INTERVAL 2 DAY),
-        'Tarjeta de Crédito / Débito', 55.00, 'Confirmada',
+        'Tarjeta de Crédito / Débito', 55.00, 'Pendiente',
         (SELECT id FROM registro_habitacion WHERE no_habitacion = 104),
         (SELECT id FROM Usuario WHERE username = 'admin'),
         NULL

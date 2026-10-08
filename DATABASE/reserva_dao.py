@@ -9,11 +9,9 @@ class ReservaDAO:
 
     # Prioridad de cada estado en las mesas de trabajo de recepción. El número
     # es el orden en que se muestran: lo que el personal todavía tiene que
-    # atender va primero y lo que ya se cerró va al final. «Pendiente» y
-    # «Confirmada» comparten prioridad porque las dos esperan al huésped.
+    # atender va primero y lo que ya se cerró va al final.
     PRIORIDAD_ESTADOS = {
         "Pendiente": 1,
-        "Confirmada": 1,
         "Iniciada": 2,
         "Cancelada": 3,
         "Finalizada": 4,
@@ -26,8 +24,8 @@ class ReservaDAO:
         """Arma el ORDER BY que impone la jerarquía de estados en MySQL.
 
         Se construye con un CASE porque el campo `estado` es un ENUM guardado
-        como texto: MySQL los ordena por orden alfabético («Cancelada» antes que
-        «Confirmada» de la entrada), no por el orden en que le interesa al hotel.
+        como texto: MySQL los ordena alfabéticamente, no por el orden en que le
+        interesa al hotel.
         """
         casos = " ".join(
             f"WHEN '{estado}' THEN {prioridad}"
@@ -42,7 +40,6 @@ class ReservaDAO:
         cliente,
         identificacion,
         contacto,
-        correo,
         noches,
         fecha_entrada,
         fecha_salida,
@@ -104,7 +101,7 @@ class ReservaDAO:
                 SELECT id
                 FROM Reserva
                 WHERE habitacion_id = %s
-                AND estado IN ('Pendiente', 'Confirmada')
+                AND estado = 'Pendiente'
                 AND fecha_entrada < %s
                 AND fecha_salida > %s
                 LIMIT 1
@@ -124,14 +121,14 @@ class ReservaDAO:
             cursor.execute(
                 """
                 INSERT INTO Reserva
-                (cliente, identificacion, contacto, correo_electronico, noches,
+                (cliente, identificacion, contacto, noches,
                 fecha_entrada, fecha_salida, metodo_pago, total, estado,
                 habitacion_id, empleado_id, checkin_empleado_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (cliente, identificacion, contacto, correo, int(noches), fecha_entrada,
-                 fecha_salida, metodo_pago, total, estado_inicial,
-                 habitacion_id, empleado_id, checkin_empleado_id),
+                (cliente, identificacion, contacto, int(noches), fecha_entrada,
+                fecha_salida, metodo_pago, total, estado_inicial,
+                habitacion_id, empleado_id, checkin_empleado_id),
             )
             conexion.commit()
             nuevo_id = cursor.lastrowid
@@ -166,7 +163,7 @@ class ReservaDAO:
             if not reserva:
                 cursor.close()
                 return False, "La reserva no existe."
-            if reserva["estado"] not in ("Pendiente", "Confirmada"):
+            if reserva["estado"] != "Pendiente":
                 cursor.close()
                 return False, f"La reserva ya está en estado «{reserva['estado']}»."
             if reserva["mantenimiento"]:
@@ -247,7 +244,7 @@ class ReservaDAO:
                 """
                 UPDATE Reserva
                 SET estado = 'Cancelada', salida_empleado_id = %s
-                WHERE id = %s AND estado IN ('Pendiente', 'Confirmada')
+                WHERE id = %s AND estado = 'Pendiente'
                 """,
                 (empleado_id, reserva_id),
             )
@@ -255,7 +252,7 @@ class ReservaDAO:
             afectadas = cursor.rowcount
             cursor.close()
             if afectadas == 0:
-                return False, "Solo se pueden cancelar reservas pendientes o confirmadas."
+                return False, "Solo se pueden cancelar reservas pendientes."
             return True, "Reserva cancelada correctamente."
         except Error as err:
             conexion.rollback()
@@ -272,7 +269,7 @@ class ReservaDAO:
         """
         return self._listar(
             """
-            AND r.estado IN ('Pendiente', 'Confirmada')
+            AND r.estado = 'Pendiente'
             AND r.fecha_entrada <= %s
             AND r.fecha_salida >= %s
             """,
@@ -349,7 +346,7 @@ class ReservaDAO:
         condiciones = " ".join(parte for parte in (base, filtro) if parte)
 
         sql = f"""
-            SELECT r.id, r.cliente, r.identificacion, r.contacto, r.correo_electronico,
+            SELECT r.id, r.cliente, r.identificacion, r.contacto,
                 r.noches, r.fecha_entrada, r.fecha_salida, r.metodo_pago, r.total,
                 r.estado, r.habitacion_id, r.empleado_id, r.creado_en,
                 h.nombre AS habitacion_nombre, h.no_habitacion AS habitacion_numero,

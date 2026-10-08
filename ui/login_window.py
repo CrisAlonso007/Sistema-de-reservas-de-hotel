@@ -17,7 +17,7 @@ class LoginPersonal(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Acceso al Sistema - Recepción")
-        self.setFixedSize(430, 500)
+        self.setFixedSize(1000, 600)
         self.setStyleSheet(ESTILO_LOGIN)
 
         self.autenticacion_service = AutenticacionService()
@@ -37,12 +37,12 @@ class LoginPersonal(QWidget):
         layout.setContentsMargins(40, 36, 40, 36)
         layout.setSpacing(14)
 
-        lbl_titulo = QLabel("Sistema de Reservas")
+        lbl_titulo = QLabel("Inicio de Sesión")
         lbl_titulo.setObjectName("loginTitulo")
         lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(lbl_titulo)
 
-        lbl_subtitulo = QLabel("Acceso interno · Personal de Recepción")
+        lbl_subtitulo = QLabel("Sistema de gestión de reservas de hotel para el personal autorizado")
         lbl_subtitulo.setObjectName("loginSubtitulo")
         lbl_subtitulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(lbl_subtitulo)
@@ -51,9 +51,8 @@ class LoginPersonal(QWidget):
 
         lbl_usuario = QLabel("Usuario")
         layout.addWidget(lbl_usuario)
-
         self.txt_usuario = QLineEdit()
-        self.txt_usuario.setPlaceholderText("usuario del hotel")
+        self.txt_usuario.setPlaceholderText("ingrese su nombre de usuario")
         self.txt_usuario.setFixedHeight(36)
         self.txt_usuario.setMaxLength(20)
         self.txt_usuario.setValidator(
@@ -63,9 +62,8 @@ class LoginPersonal(QWidget):
 
         lbl_password = QLabel("Contraseña")
         layout.addWidget(lbl_password)
-
         self.txt_password = QLineEdit()
-        self.txt_password.setPlaceholderText("contraseña")
+        self.txt_password.setPlaceholderText("ingrese su contraseña")
         self.txt_password.setFixedHeight(36)
         self.txt_password.setMaxLength(30)
         self.txt_password.setEchoMode(QLineEdit.EchoMode.Password)
@@ -81,7 +79,7 @@ class LoginPersonal(QWidget):
         self.lbl_estado.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.lbl_estado)
 
-        btn_ingresar = QPushButton("Ingresar al Sistema")
+        btn_ingresar = QPushButton("Ingresar")
         btn_ingresar.setObjectName("loginBoton")
         btn_ingresar.setFixedHeight(42)
         btn_ingresar.setCursor(Qt.PointingHandCursor)

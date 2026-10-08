@@ -28,7 +28,6 @@ class PanelRecepcion(QWidget):
     # se muestran con palabras del dia a dia.
     ETIQUETAS_ESTADO = {
         "Pendiente": "Reservada",
-        "Confirmada": "Confirmada",
         "Iniciada": "Alojado",
         "Finalizada": "Finalizada",
         "Cancelada": "Cancelada",
@@ -233,7 +232,7 @@ class PanelRecepcion(QWidget):
         estado = reserva["estado"]
         acciones = []
 
-        if estado in ("Pendiente", "Confirmada"):
+        if estado == "Pendiente":
             if reserva["fecha_entrada"] <= date.today():
                 acciones.append((
                     "Marcar como ocupada",
@@ -350,7 +349,6 @@ class PanelRecepcion(QWidget):
             reserva["cliente"],
             reserva["identificacion"],
             reserva["contacto"],
-            reserva["correo_electronico"],
             reserva["metodo_pago"],
             reserva["estado"],
         ]

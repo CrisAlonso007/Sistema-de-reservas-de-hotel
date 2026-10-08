@@ -273,7 +273,6 @@ COLORES_ESTATUS = {
     "Reservado": "#d68910",
     "Mantenimiento": "#5d6d7e",
     "Pendiente": "#d68910",
-    "Confirmada": "#2f6fb0",
     "Iniciada": "#2e9e5b",
     "Finalizada": "#5d6d7e",
     "Cancelada": "#c0392b",

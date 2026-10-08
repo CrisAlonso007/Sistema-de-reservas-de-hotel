@@ -161,7 +161,7 @@ de fechas.
   aparece en «Huéspedes alojados» hasta que se marque como ocupada.
 * Un ingreso o una salida actualizan las dos mesas de recepción, el catálogo y el
   tablero en el momento, sin esperar al refresco periódico.
-* Cancelar una reserva solo es posible mientras está `Pendiente` o `Confirmada`.
+* Cancelar una reserva solo es posible mientras está `Pendiente`.
 
 ## Las dos mesas de recepción
 
@@ -170,7 +170,7 @@ complementan y no deben confundirse:
 
 | Mesa | Qué contiene | Qué se le puede hacer |
 |------|--------------|----------------------|
-| **Reservas del hotel** | Todas las reservas, de cualquier fecha y estado: `Pendiente`, `Confirmada`, `Iniciada`, `Finalizada` y `Cancelada` | **Marcar como ocupada** (solo si la fecha de entrada ya llegó), **Cancelar reserva** y **Registrar salida** |
+| **Reservas del hotel** | Todas las reservas, de cualquier fecha y estado: `Pendiente`, `Iniciada`, `Finalizada` y `Cancelada` | **Marcar como ocupada** (solo si la fecha de entrada ya llegó), **Cancelar reserva** y **Registrar salida** |
 | **Huéspedes alojados** | Solo los huéspedes que están dentro del hotel ahora mismo | **Registrar salida** |
 
 «Reservas del hotel» es el histórico completo: una reserva del mes que viene o una
@@ -180,14 +180,14 @@ fecha de entrada aún no llega no ofrecen «Marcar como ocupada», porque el
 huésped no puede alojarse antes de tiempo; sí pueden cancelarse.
 
 El orden de esa mesa lo impone la consulta, no la interfaz: primero las reservas
-**pendientes y confirmadas** (las que esperan al huésped), después las
-**iniciadas**, luego las **canceladas** y al final las **finalizadas**; dentro de
+**pendientes** (las que esperan al huésped), después las **iniciadas**, luego las
+**canceladas** y al final las **finalizadas**; dentro de
 cada grupo, la fecha de entrada más antigua primero. Así el personal ve primero
 lo que tiene que atender.
 
 Sobre esa mesa hay una barra con un buscador y un filtro por estado
 (`txt_buscar` y `cmb_filtro_estado`). Ambos trabajan **en tiempo real y sobre las
-filas ya cargadas**: la búsqueda (huésped, habitación, documento, teléfono, correo,
+filas ya cargadas**: la búsqueda (huésped, habitación, documento, teléfono,
 pago) y el estado se combinan, y cada fila se muestra u oculta con
 `setRowHidden` sin volver a consultar MySQL. La etiqueta de la barra indica
 cuántas reservas están visibles de las cargadas. El filtro sobrevive al refresco
@@ -203,4 +203,3 @@ ocupado, y toda habitación ocupada tiene a su huésped en la mesa.
 
 Las reservas `Finalizada` y `Cancelada` se muestran en el histórico pero sin
 botones, porque una estancia cerrada ya no admite más movimientos.
-
