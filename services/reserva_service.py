@@ -2,7 +2,7 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from DATABASE.reserva_dao import ReservaDAO
-from utils.permisos import sesion_valida
+from utils.seguridad import sesion_valida
 from utils.validaciones import (
     es_identificacion_valida,
     es_noches_valida,

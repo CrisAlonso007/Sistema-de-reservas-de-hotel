@@ -1,7 +1,7 @@
 # services/habitacion_service.py
 import os
 from DATABASE.habitacion_dao import HabitacionDAO
-from utils.permisos import (
+from utils.seguridad import (
     MENSAJE_SIN_PERMISO,
     puede_administrar_catalogo,
     sesion_valida,

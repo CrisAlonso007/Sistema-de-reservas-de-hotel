@@ -60,8 +60,7 @@ ui/
    registro_huesped.py    Formulario único de registro de huésped
    tarjetas_lista.py      Tarjeta del catálogo
 utils/
-  seguridad.py           Hash PBKDF2-SHA256 de contraseñas
-  permisos.py            Autorización por sesión y rol (backend)
+  seguridad.py           Hash de contraseñas y autorización por sesión y rol
   validaciones.py        Reglas de validación de entrada
   stylesheets.py         Estilos visuales
 recursos/                Imagen por defecto de las habitaciones

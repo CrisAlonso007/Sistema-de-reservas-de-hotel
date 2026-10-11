@@ -13,7 +13,7 @@ from ui.panel_dashboard import PanelDashboard
 from ui.panel_pagos import PanelPagos
 from ui.historial_huespedes import HistorialHuespedesWindow
 from ui.registro_huesped import RegistroHuespedDialog
-from utils.permisos import puede_administrar_catalogo
+from utils.seguridad import puede_administrar_catalogo
 
 class VentanaPrincipal(QMainWindow):
     """Shell de la aplicación: banner superior y paneles apilados."""
