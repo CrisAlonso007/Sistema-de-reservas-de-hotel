@@ -10,7 +10,8 @@ from ui.banner_navegacion import BannerNavegacion
 from ui.detalle_habitacion import DetalleHabitacionWidget
 from ui.panel_catalogo import PanelCatalogo
 from ui.panel_dashboard import PanelDashboard
-from ui.panel_recepcion import PanelRecepcion
+from ui.panel_pagos import PanelPagos
+from ui.historial_huespedes import HistorialHuespedesWindow
 from ui.registro_huesped import RegistroHuespedDialog
 from utils.permisos import puede_administrar_catalogo
 
@@ -30,6 +31,7 @@ class VentanaPrincipal(QMainWindow):
         self.reserva_service = reserva_service or ReservaService()
         self.ventana_admin = None
         self.dialogo_registro = None
+        self.ventana_historial = None
         self.habitacion_en_detalle = None
 
         self.setWindowTitle("Sistema de Reservas de Hotel · Recepción")
@@ -52,6 +54,8 @@ class VentanaPrincipal(QMainWindow):
         )
         self.panel_dashboard.navegar_a.connect(self._ir_a_panel)
         self.panel_dashboard.registro_solicitado.connect(self._abrir_registro_huesped)
+        self.panel_dashboard.historial_solicitado.connect(self._abrir_historial)
+        self.panel_dashboard.ocupacion_cambiada.connect(self.refrescar_paneles)
 
         self.panel_catalogo = PanelCatalogo(
             usuario_actual=self.usuario_actual,
@@ -61,12 +65,11 @@ class VentanaPrincipal(QMainWindow):
         )
         self.panel_catalogo.catalogo_modificado.connect(self._al_modificar_catalogo)
 
-        self.panel_recepcion = PanelRecepcion(
+        self.panel_pagos = PanelPagos(
             usuario_actual=self.usuario_actual,
             reserva_service=self.reserva_service,
         )
-        self.panel_recepcion.registro_solicitado.connect(self._abrir_registro_huesped)
-        self.panel_recepcion.ocupacion_cambiada.connect(self.refrescar_paneles)
+        self.panel_pagos.pago_registrado.connect(self.refrescar_paneles)
 
         self.vista_detalle = DetalleHabitacionWidget(
             al_volver_callback=self._volver_al_catalogo,
@@ -79,7 +82,7 @@ class VentanaPrincipal(QMainWindow):
         self.paneles = {
             "dashboard": self.panel_dashboard,
             "catalogo": self.panel_catalogo,
-            "recepcion": self.panel_recepcion,
+            "pagos": self.panel_pagos,
             self.PANEL_DETALLE: self.vista_detalle,
         }
 
@@ -127,12 +130,14 @@ class VentanaPrincipal(QMainWindow):
         """Mantiene sincronizados los paneles con el estado real de la base de datos."""
         self.panel_dashboard.refrescar()
         self.panel_catalogo.refrescar()
-        self.panel_recepcion.refrescar()
+        self.panel_pagos.refrescar()
+        if self.ventana_historial is not None:
+            self.ventana_historial.refrescar()
 
     def _al_modificar_catalogo(self):
-        """Renueva el tablero y recepción; el catálogo ya se refrescó en su propia señal."""
+        """Renueva el tablero y pagos; el catálogo ya se refrescó en su propia señal."""
         self.panel_dashboard.refrescar()
-        self.panel_recepcion.refrescar()
+        self.panel_pagos.refrescar()
 
     def _refresco_periodico(self):
         """Mantiene la ocupación al día aunque nadie navegue por los paneles."""
@@ -193,7 +198,7 @@ class VentanaPrincipal(QMainWindow):
         self.dialogo_registro = None
 
     def _al_registrar_huesped(self, reserva: dict, mensaje: str):
-        """Confirma el alta y renueva tablero, catálogo y recepción."""
+        """Confirma el alta y renueva tablero, catálogo y pagos."""
         QMessageBox.information(self, "Huésped registrado", mensaje)
         self.refrescar_paneles()
 
@@ -218,6 +223,31 @@ class VentanaPrincipal(QMainWindow):
         self.ventana_admin = None
 
     # ------------------------------------------------------------------
+    # HISTORIAL DE HUÉSPEDES
+    # ------------------------------------------------------------------
+    def _abrir_historial(self):
+        """Abre (o trae al frente) la ventana independiente del historial."""
+        if self.ventana_historial is not None:
+            self.ventana_historial.show()
+            self.ventana_historial.raise_()
+            self.ventana_historial.activateWindow()
+            return
+
+        self.ventana_historial = HistorialHuespedesWindow(
+            usuario_actual=self.usuario_actual,
+            reserva_service=self.reserva_service,
+            parent=self,
+        )
+        self.ventana_historial.destroyed.connect(self._al_cerrar_historial)
+        self.ventana_historial.show()
+        self.ventana_historial.raise_()
+        self.ventana_historial.activateWindow()
+
+    def _al_cerrar_historial(self):
+        """Libera la referencia a la ventana de historial ya destruida."""
+        self.ventana_historial = None
+
+    # ------------------------------------------------------------------
     # SESIÓN
     # ------------------------------------------------------------------
     def _cerrar_sesion(self):
@@ -230,4 +260,6 @@ class VentanaPrincipal(QMainWindow):
         self.timer_refresco.stop()
         if self.ventana_admin:
             self.ventana_admin.close()
+        if self.ventana_historial:
+            self.ventana_historial.close()
         super().closeEvent(event)

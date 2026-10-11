@@ -67,6 +67,7 @@ class PanelCatalogo(QWidget):
         """Abre el formulario de alta. La navegación la resuelve la ventana principal."""
         if self.al_editar_habitacion:
             self.al_editar_habitacion(None)
+
     def refrescar(self):
         """Recarga la lista de habitaciones y el resumen de inventario."""
         if not self.habitacion_service:
@@ -138,6 +139,29 @@ class PanelCatalogo(QWidget):
             QMessageBox.warning(self, "No se pudo eliminar", mensaje)
 
     def _solicitar_mantenimiento(self, habitacion):
+        en_mantenimiento = bool(habitacion.get("mantenimiento"))
+        if en_mantenimiento:
+            titulo = "Quitar mantenimiento"
+            pregunta = (
+                f"¿Devolver la habitación {habitacion.get('numero')} al servicio?\n\n"
+                "Volverá a figurar como disponible para reservar."
+            )
+        else:
+            titulo = "Poner en mantenimiento"
+            pregunta = (
+                f"¿Marcar la habitación {habitacion.get('numero')} en mantenimiento?\n\n"
+                "No admitirá reservas mientras esté fuera de servicio."
+            )
+
+        confirmacion = QMessageBox.question(
+            self,
+            titulo,
+            pregunta,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if confirmacion != QMessageBox.StandardButton.Yes:
+            return
+
         exito, mensaje = self.habitacion_service.alternar_mantenimiento(
             usuario_actual=self.usuario_actual,
             habitacion_id=habitacion.get("id"),

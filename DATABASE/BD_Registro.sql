@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS Reserva (
     fecha_salida DATE NOT NULL,
     metodo_pago ENUM('Tarjeta de Crédito / Débito', 'Efectivo en Recepción', 'Transferencia Bancaria') NOT NULL,
     total DECIMAL(10,2) NOT NULL,
+    monto_pagado DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     estado ENUM('Pendiente', 'Iniciada', 'Finalizada', 'Cancelada') NOT NULL DEFAULT 'Pendiente',
     habitacion_id INT NOT NULL,
     empleado_id INT NOT NULL,
@@ -79,6 +80,25 @@ WHERE CAST(estado AS CHAR) = 'Confirmada';
 ALTER TABLE Reserva
     MODIFY COLUMN estado ENUM('Pendiente', 'Iniciada', 'Finalizada', 'Cancelada')
     NOT NULL DEFAULT 'Pendiente';
+
+-- PAGOS DE RESERVAS
+-- Cada cobro queda registrado (incluso los parciales). El saldo de una reserva
+-- es total - monto_pagado, y su estado de pago se calcula en las consultas.
+CREATE TABLE IF NOT EXISTS Pago (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    reserva_id INT NOT NULL,
+    monto DECIMAL(10,2) NOT NULL,
+    metodo_pago ENUM('Tarjeta de Crédito / Débito', 'Efectivo en Recepción', 'Transferencia Bancaria') NOT NULL,
+    empleado_id INT NOT NULL,
+    creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (reserva_id) REFERENCES Reserva(id) ON DELETE CASCADE,
+    FOREIGN KEY (empleado_id) REFERENCES Usuario(id) ON DELETE RESTRICT,
+    INDEX idx_pago_reserva (reserva_id),
+    CONSTRAINT chk_pago_monto CHECK (monto > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Para bases ya existentes (creadas antes de esta versión), ejecute una vez:
+--   ALTER TABLE Reserva ADD COLUMN monto_pagado DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER total;
 
 INSERT INTO Usuario
 (username, passwrd, rol, nombre_completo, numero_identificacion, correo_electronico, numero_telefono, activo)

@@ -1,9 +1,10 @@
 # ui/panel_dashboard.py
 from datetime import datetime
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QGroupBox, QPushButton
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton
 )
 from PySide6.QtCore import Qt, Signal
+from ui.tabla_reservas import TablaReservas
 from utils.stylesheets import COLORES_ESTATUS, ESTILO_PANEL
 
 class TarjetaKpi(QFrame):
@@ -40,6 +41,10 @@ class PanelDashboard(QWidget):
     navegar_a = Signal(str)
     # Alta de huésped: la acción más frecuente de la recepción.
     registro_solicitado = Signal()
+    # Abre la ventana independiente con el historial completo de huéspedes.
+    historial_solicitado = Signal()
+    # Un ingreso o una salida mueven la ocupación: hay que refrescar el resto.
+    ocupacion_cambiada = Signal()
 
     def __init__(self, usuario_actual: dict = None, habitacion_service=None, reserva_service=None, parent=None):
         super().__init__(parent)
@@ -70,18 +75,17 @@ class PanelDashboard(QWidget):
         # --------------------------------------------------
         # DETALLE DE OPERACIÓN
         # --------------------------------------------------
-        layout.addLayout(self._crear_fila_detalles())
-
-        layout.addStretch()
+        layout.addLayout(self._crear_fila_detalles(), stretch=1)
 
     def _crear_encabezado(self):
         contenedor = QWidget()
         layout = QHBoxLayout(contenedor)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
 
         textos = QVBoxLayout()
         textos.setSpacing(2)
-        lbl_titulo = QLabel("Panel de Control")
+        lbl_titulo = QLabel("Inicio")
         lbl_titulo.setObjectName("panelTitulo")
         textos.addWidget(lbl_titulo)
 
@@ -94,6 +98,14 @@ class PanelDashboard(QWidget):
 
         layout.addLayout(textos)
         layout.addStretch()
+
+        self.btn_historial = QPushButton("Ver historial de huéspedes")
+        self.btn_historial.setObjectName("accionSecundaria")
+        self.btn_historial.setCursor(Qt.PointingHandCursor)
+        self.btn_historial.setFixedHeight(38)
+        self.btn_historial.setToolTip("Abre una ventana con todos los registros de huéspedes del hotel.")
+        self.btn_historial.clicked.connect(self.historial_solicitado.emit)
+        layout.addWidget(self.btn_historial)
 
         # Acción principal del sistema: llega un cliente y hay que registrarlo.
         self.btn_registrar = QPushButton("+  Registrar Huésped")
@@ -127,42 +139,37 @@ class PanelDashboard(QWidget):
         layout = QHBoxLayout()
         layout.setSpacing(12)
 
-        # --------------------------------------------------
-        # LLEGADAS PENDIENTES
-        # --------------------------------------------------
-        grupo_llegadas = QGroupBox("Llegadas pendientes de ingreso")
-        grupo_llegadas.setObjectName("seccion")
-        layout_llegadas = QVBoxLayout(grupo_llegadas)
-        layout_llegadas.setContentsMargins(16, 18, 16, 14)
+        # Las dos mesas operativas del día: quién está por llegar y quién está
+        # alojado. Antes eran textos sueltos; ahora son tablas con su acción de
+        # ingreso o salida, como pedía la operación diaria de recepción.
+        self.tabla_llegadas = TablaReservas(
+            usuario_actual=self.usuario_actual,
+            reserva_service=self.reserva_service,
+            columnas=["habitacion", "cliente", "entrada", "salida"],
+            con_acciones=True,
+            con_filtros=False,
+            titulo="Reservas pendientes",
+            alto=240,
+        )
+        self.tabla_alojados = TablaReservas(
+            usuario_actual=self.usuario_actual,
+            reserva_service=self.reserva_service,
+            columnas=["habitacion", "cliente", "entrada", "salida"],
+            con_acciones=True,
+            con_filtros=False,
+            titulo="Huéspedes alojados",
+            alto=240,
+        )
 
-        self.lbl_llegadas = QLabel("—")
-        self.lbl_llegadas.setWordWrap(True)
-        self.lbl_llegadas.setTextFormat(Qt.TextFormat.PlainText)
-        self.lbl_llegadas.setStyleSheet("font-size: 12px; color: #1f2d3d; font-weight: normal;")
-        layout_llegadas.addWidget(self.lbl_llegadas)
-        layout_llegadas.addStretch()
+        self.tabla_llegadas.ocupacion_cambiada.connect(self.ocupacion_cambiada.emit)
+        self.tabla_alojados.ocupacion_cambiada.connect(self.ocupacion_cambiada.emit)
 
-        # --------------------------------------------------
-        # HUÉSPEDES ALOJADOS
-        # --------------------------------------------------
-        grupo_casa = QGroupBox("Huéspedes alojados")
-        grupo_casa.setObjectName("seccion")
-        layout_casa = QVBoxLayout(grupo_casa)
-        layout_casa.setContentsMargins(16, 18, 16, 14)
-
-        self.lbl_en_casa = QLabel("—")
-        self.lbl_en_casa.setWordWrap(True)
-        self.lbl_en_casa.setTextFormat(Qt.TextFormat.PlainText)
-        self.lbl_en_casa.setStyleSheet("font-size: 12px; color: #1f2d3d; font-weight: normal;")
-        layout_casa.addWidget(self.lbl_en_casa)
-        layout_casa.addStretch()
-
-        layout.addWidget(grupo_llegadas)
-        layout.addWidget(grupo_casa)
+        layout.addWidget(self.tabla_llegadas, stretch=1)
+        layout.addWidget(self.tabla_alojados, stretch=1)
         return layout
 
     def refrescar(self):
-        """Recarga los indicadores con el estado actual del hotel."""
+        """Recarga los indicadores y las dos mesas operativas."""
         if not self.habitacion_service or not self.reserva_service:
             return
 
@@ -177,29 +184,8 @@ class PanelDashboard(QWidget):
             f"OCUPADAS HOY ({resumen['porcentaje_ocupacion']}%)"
         )
 
-        llegadas = self.reserva_service.obtener_llegadas_hoy()
-        if llegadas:
-            self.lbl_llegadas.setText("\n".join(
-                f"· Hab. {res['habitacion_numero']} — {res['cliente']} (al {self._fechas(res)})"
-                for res in llegadas[:5]
-            ))
-        else:
-            self.lbl_llegadas.setText("No hay llegadas pendientes para hoy.")
-
-        en_casa = self.reserva_service.obtener_en_casa()
-        if en_casa:
-            self.lbl_en_casa.setText("\n".join(
-                f"· Hab. {res['habitacion_numero']} — {res['cliente']} (sale {self._fechas(res)})"
-                for res in en_casa[:5]
-            ))
-        else:
-            self.lbl_en_casa.setText("No hay huéspedes alojados en este momento.")
-
-    def _fechas(self, reserva):
-        return (
-            f"{self.reserva_service.formato_fecha(reserva['fecha_entrada'])} a "
-            f"{self.reserva_service.formato_fecha(reserva['fecha_salida'])}"
-        )
+        self.tabla_llegadas.llenar(self.reserva_service.obtener_reservas_pendientes())
+        self.tabla_alojados.llenar(self.reserva_service.obtener_en_casa())
 
     @staticmethod
     def _saludo():

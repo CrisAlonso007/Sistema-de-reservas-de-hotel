@@ -95,28 +95,55 @@ class HabitacionDAO:
             self.db.desconectar()
 
     def alternar_mantenimiento(self, id):
-        """Pone la habitación fuera de servicio o la devuelve a operación."""
+        """Pone la habitación fuera de servicio o la devuelve a operación.
+
+        Solo entra en mantenimiento una habitación sin reservas activas: sacar
+        de servicio una habitación con una reserva pendiente o una estancia en
+        curso dejaría esa reserva sin habitación. Salir de mantenimiento siempre
+        está permitido.
+        """
         conexion = self.db.conectar()
         if not conexion:
             return False, "No hay conexión con el servidor de base de datos."
 
         try:
-            cursor = conexion.cursor()
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT h.mantenimiento,
+                    EXISTS (
+                        SELECT 1 FROM Reserva r
+                        WHERE r.habitacion_id = h.id
+                        AND r.estado IN ('Pendiente', 'Iniciada')
+                    ) AS reserva_activa
+                FROM registro_habitacion h
+                WHERE h.id = %s
+                FOR UPDATE
+                """,
+                (id,),
+            )
+            fila = cursor.fetchone()
+            if not fila:
+                cursor.close()
+                return False, "No se encontró la habitación."
+
+            en_mantenimiento = bool(fila["mantenimiento"])
+            if not en_mantenimiento and fila["reserva_activa"]:
+                cursor.close()
+                return False, (
+                    "No se puede poner en mantenimiento: la habitación tiene una "
+                    "reserva o estancia activa."
+                )
+
             cursor.execute(
                 "UPDATE registro_habitacion SET mantenimiento = 1 - mantenimiento WHERE id = %s",
                 (id,),
             )
             conexion.commit()
-            cursor.execute(
-                "SELECT mantenimiento FROM registro_habitacion WHERE id = %s", (id,)
-            )
-            fila = cursor.fetchone()
             cursor.close()
-            if not fila:
-                return False, "No se encontró la habitación."
-            if fila[0]:
-                return True, "Habitación marcada en mantenimiento."
-            return True, "Habitación puesta en servicio."
+            if en_mantenimiento:
+                return True, "Habitación puesta en servicio."
+            return True, "Habitación marcada en mantenimiento."
         except Error as err:
             conexion.rollback()
             print(f"Error al cambiar el estado de la habitación: {err}")
@@ -149,7 +176,12 @@ class HabitacionDAO:
                         AND r.fecha_salida >= CURDATE()
                     ) THEN 'Reservado'
                     ELSE 'Disponible'
-                END AS estatus
+                END AS estatus,
+                EXISTS (
+                    SELECT 1 FROM Reserva r
+                    WHERE r.habitacion_id = h.id
+                    AND r.estado IN ('Pendiente', 'Iniciada')
+                ) AS reserva_activa
             FROM registro_habitacion h
             ORDER BY h.no_habitacion
         """
@@ -169,10 +201,11 @@ class HabitacionDAO:
     def obtener_disponibles(self, fecha_entrada, fecha_salida):
         """Habitaciones libres para el tramo pedido, excluyendo las ocupadas.
 
-        Hay dos reglas distintas según el estado de la estancia:
+        Usa la misma regla de solape que el registro de reservas para que la
+        oferta de habitaciones y la validación de choque nunca discrepen:
 
-        - Pendiente es una reserva: usa intervalos abiertos,
-          así que una salida el mismo día que la siguiente entrada no choca.
+        - Pendiente es una reserva: usa intervalos abiertos, así que una salida
+          el mismo día que la siguiente entrada no choca.
         - Iniciada significa que el huésped ya está dentro. La habitación no se
           libera por calendario, sino cuando el recepcionista registra la
           salida, por lo que bloquea también el día de su salida.
@@ -198,7 +231,7 @@ class HabitacionDAO:
                     OR
                     (
                         r.estado = 'Iniciada'
-                        AND r.fecha_entrada <= %s
+                        AND r.fecha_entrada < %s
                         AND r.fecha_salida >= %s
                     )
                 )
@@ -208,7 +241,7 @@ class HabitacionDAO:
 
         try:
             cursor = conexion.cursor(dictionary=True)
-            cursor.execute(sql, (fecha_salida, fecha_entrada, fecha_entrada, fecha_entrada))
+            cursor.execute(sql, (fecha_salida, fecha_entrada, fecha_salida, fecha_entrada))
             habitaciones = cursor.fetchall()
             cursor.close()
             return habitaciones
@@ -218,44 +251,3 @@ class HabitacionDAO:
         finally:
             self.db.desconectar()
 
-    def obtener_habitacion(self, id):
-        """Trae una habitación puntual con su estatus calculado."""
-        conexion = self.db.conectar()
-        if not conexion:
-            return None
-
-        sql = """
-            SELECT h.id, h.nombre, h.no_habitacion AS numero, h.tipo, h.precio,
-                h.capacidad, h.descripcion, h.imagen, h.mantenimiento,
-                CASE
-                    WHEN h.mantenimiento = 1 THEN 'Mantenimiento'
-                    WHEN EXISTS (
-                        SELECT 1 FROM Reserva r
-                        WHERE r.habitacion_id = h.id
-                        AND r.estado = 'Iniciada'
-                        AND r.fecha_entrada <= CURDATE()
-                    ) THEN 'Ocupado'
-                    WHEN EXISTS (
-                        SELECT 1 FROM Reserva r
-                        WHERE r.habitacion_id = h.id
-                        AND r.estado = 'Pendiente'
-                        AND r.fecha_entrada <= CURDATE()
-                        AND r.fecha_salida >= CURDATE()
-                    ) THEN 'Reservado'
-                    ELSE 'Disponible'
-                END AS estatus
-            FROM registro_habitacion h
-            WHERE h.id = %s
-        """
-
-        try:
-            cursor = conexion.cursor(dictionary=True)
-            cursor.execute(sql, (id,))
-            habitacion = cursor.fetchone()
-            cursor.close()
-            return habitacion
-        except Error as err:
-            print(f"Error al obtener la habitación: {err}")
-            return None
-        finally:
-            self.db.desconectar()

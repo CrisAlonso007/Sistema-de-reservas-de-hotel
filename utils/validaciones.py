@@ -1,13 +1,11 @@
 # utils/validaciones.py
 import re
-from datetime import datetime
 
 # Límites alineados con el esquema MySQL (ver DATABASE/BD_Registro.sql)
 MAX_NOMBRE_HABITACION = 100
 MAX_DESCRIPCION_HABITACION = 255
 MAX_NOMBRE_HUESPED = 100
 MAX_TELEFONO = 50
-MAX_CORREO = 100
 
 def es_texto_valido(texto: str, longitud_minima: int = 1, longitud_maxima: int | None = None) -> bool:
     """Verifica que la cadena no sea None, no esté vacía ni contenga solo espacios."""
@@ -39,28 +37,9 @@ def es_precio_valido(valor: str | float | int) -> bool:
         return False
 
 
-def es_capacidad_valida(valor: str | int) -> bool:
-    """Valida que la capacidad sea un entero entre 1 y 20 huéspedes."""
-    try:
-        personas = int(str(valor).strip())
-        return 1 <= personas <= 20
-    except (TypeError, ValueError):
-        return False
-
-
 # ----------------------------------------------------------------------
 # VALIDACIONES DEL PERSONAL Y DEL CONTACTO DEL HUESPED
 # ----------------------------------------------------------------------
-def validar_correo(correo: str) -> bool:
-    """Valida un correo electrónico independiente de otras reglas."""
-    if not isinstance(correo, str):
-        return False
-    correo_limpio = correo.strip()
-    if not (5 <= len(correo_limpio) <= MAX_CORREO):
-        return False
-    return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", correo_limpio))
-
-
 def es_usuario_valido(usuario: str) -> bool:
     """Valida un nombre de usuario (3-20 caracteres: letras, números o guion bajo)."""
     if not isinstance(usuario, str):
@@ -113,18 +92,6 @@ def validar_telefono(telefono: str) -> bool:
 # ----------------------------------------------------------------------
 # VALIDACIONES DE LAS ESTANCIAS
 # ----------------------------------------------------------------------
-def es_fecha_valida(fecha: str) -> bool:
-    """Valida formato YYYY-MM-DD y que no sea una fecha pasada."""
-    if not isinstance(fecha, str):
-        return False
-
-    try:
-        fecha_obj = datetime.strptime(fecha.strip(), "%Y-%m-%d")
-        return fecha_obj.date() >= datetime.now().date()
-    except (ValueError, AttributeError):
-        return False
-
-
 def es_noches_valida(valor: str | int) -> bool:
     """Valida que la cantidad de noches sea un entero mayor a cero."""
     if valor is None:

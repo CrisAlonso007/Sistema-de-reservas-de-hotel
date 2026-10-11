@@ -33,6 +33,8 @@ class AppController:
             self.main_window.close()
             self.main_window.deleteLater()
 
+        self.login_window.hide()
+
         self.main_window = VentanaPrincipal(
             usuario_actual=usuario_actual,
             habitacion_service=self.servicio_habitaciones,

@@ -1,6 +1,6 @@
 # services/reserva_service.py
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from DATABASE.reserva_dao import ReservaDAO
 from utils.permisos import sesion_valida
 from utils.validaciones import (
@@ -34,8 +34,50 @@ class ReservaService:
         "Finalizada",
     ]
 
+    # Único lugar donde se traduce el estado técnico de la BD al nombre que usa
+    # el personal. «Pendiente» y «Reservada» son la misma cosa: la reserva existe
+    # pero el huésped todavía no llegó, así que se muestra siempre como
+    # «Reservada» sin tener que renombrar el valor guardado en MySQL.
+    ETIQUETAS_ESTADO = {
+        "Pendiente": "Reservada",
+        "Iniciada": "Alojado",
+        "Finalizada": "Finalizada",
+        "Cancelada": "Cancelada",
+    }
+
+    # Estados de la cuenta de una reserva. Se calculan a partir de monto_pagado
+    # (no se almacenan) para que nunca queden desincronizados con lo cobrado.
+    ESTADOS_PAGO = [
+        "Pendiente",
+        "Parcial",
+        "Pagado",
+    ]
+
+    # Nombres visibles del estado de cuenta. El valor técnico sigue siendo
+    # Pendiente/Parcial/Pagado, pero se muestra distinto para no chocar con el
+    # estado «Pendiente» de la estancia (que se ve como «Reservada»).
+    ETIQUETAS_ESTADO_PAGO = {
+        "Pendiente": "Sin pagar",
+        "Parcial": "Abonado",
+        "Pagado": "Pagado",
+    }
+
     def __init__(self):
         self.dao = ReservaDAO()
+
+    @staticmethod
+    def etiqueta_estado(estado: str) -> str:
+        """Nombre visible del estado de una reserva (unifica Pendiente/Reservada).
+
+        Toda la interfaz debe pasar por aquí para no repetir el diccionario ni
+        mostrar dos nombres distintos para el mismo estado.
+        """
+        return ReservaService.ETIQUETAS_ESTADO.get(estado, estado)
+
+    @staticmethod
+    def etiqueta_estado_pago(estado: str) -> str:
+        """Nombre visible del estado de cuenta (Sin pagar / Abonado / Pagado)."""
+        return ReservaService.ETIQUETAS_ESTADO_PAGO.get(estado, estado)
 
     @staticmethod
     def _empleado_de_sesion(usuario_actual):
@@ -62,57 +104,67 @@ class ReservaService:
         ingreso_inmediato=False,
     ) -> tuple[bool, str]:
         """Captura los datos del huésped y abre su estancia."""
-        empleado_id = self._empleado_de_sesion(usuario_actual) #
+        empleado_id = self._empleado_de_sesion(usuario_actual)
         if empleado_id is None:
-            return False, "No hay una sesión de personal válida para registrar la reserva." #[cite: 5]
+            return False, "No hay una sesión de personal válida para registrar la reserva."
 
-        if metodo_pago not in self.METODOS_PAGO: #[cite: 5]
-            return False, "El método de pago seleccionado no es válido." #[cite: 5]
+        if metodo_pago not in self.METODOS_PAGO:
+            return False, "El método de pago seleccionado no es válido."
 
-        if not es_noches_valida(noches): #[cite: 5]
-            return False, "La cantidad de noches debe ser un número mayor a cero." #[cite: 5]
+        if not es_noches_valida(noches):
+            return False, "La cantidad de noches debe ser un número mayor a cero."
 
-        if not validar_nombre_completo(cliente): #[cite: 5]
-            return False, "El nombre del huésped no es válido." #[cite: 5]
+        if not validar_nombre_completo(cliente):
+            return False, "El nombre del huésped no es válido."
 
-        if not es_identificacion_valida(identificacion): #[cite: 5]
-            return False, "El número de identificación no es válido." #[cite: 5]
+        if not es_identificacion_valida(identificacion):
+            return False, "El número de identificación no es válido."
 
-        if not validar_telefono(contacto): #[cite: 5]
-            return False, "El número de contacto no es válido." #[cite: 5]
+        if not validar_telefono(contacto):
+            return False, "El número de contacto no es válido."
 
-        entrada, error_entrada = self._parsear_fecha(fecha_entrada) #[cite: 5]
+        entrada, error_entrada = self._parsear_fecha(fecha_entrada)
         if error_entrada:
-            return False, error_entrada #[cite: 5]
+            return False, error_entrada
 
-        salida, error_salida = self._parsear_fecha(fecha_salida) #[cite: 5]
+        salida, error_salida = self._parsear_fecha(fecha_salida)
         if error_salida:
-            return False, error_salida #[cite: 5]
+            return False, error_salida
 
-        if salida <= entrada: #[cite: 5]
-            return False, "La fecha de salida debe ser posterior a la fecha de entrada." #[cite: 5]
+        if salida <= entrada:
+            return False, "La fecha de salida debe ser posterior a la fecha de entrada."
 
-        if entrada < datetime.today().date(): #[cite: 5]
-            return False, "La fecha de entrada no puede ser anterior a hoy." #[cite: 5]
+        if entrada < datetime.today().date():
+            return False, "La fecha de entrada no puede ser anterior a hoy."
 
-        if ingreso_inmediato and entrada != datetime.today().date(): #[cite: 5]
-            return False, "El hospedaje inmediato solo puede registrarse con la fecha de hoy." #[cite: 5]
+        if ingreso_inmediato and entrada != datetime.today().date():
+            return False, "El hospedaje inmediato solo puede registrarse con la fecha de hoy."
 
-        noches_calculadas = (salida - entrada).days #[cite: 5]
-        if noches_calculadas != int(noches): #[cite: 5]
-            return False, "La cantidad de noches no coincide con el rango de fechas." #[cite: 5]
+        noches_calculadas = (salida - entrada).days
+        if noches_calculadas != int(noches):
+            return False, "La cantidad de noches no coincide con el rango de fechas."
+
+        # Validación previa del choque de cuentas: si otra reserva o estancia ya
+        # pisa estas fechas, se avisa de inmediato. El registro vuelve a validar
+        # con la fila bloqueada, así que aunque el tramo cambiara en el mientras
+        # tanto, nunca se guardaría una reserva superpuesta.
+        if self.dao.existe_choque(habitacion_id, entrada, salida):
+            return False, (
+                "La habitación ya tiene una reserva o estancia que se solapa "
+                "con esas fechas."
+            )
 
         return self.dao.registrar_reserva(
-            cliente=str(cliente).strip(), #[cite: 5]
-            identificacion=str(identificacion).strip(), #[cite: 5]
-            contacto=str(contacto).strip(), #[cite: 5]
-            noches=noches_calculadas, #[cite: 5]
-            fecha_entrada=entrada, #[cite: 5]
-            fecha_salida=salida, #[cite: 5]
-            metodo_pago=metodo_pago, #[cite: 5]
-            empleado_id=empleado_id, #[cite: 5]
-            habitacion_id=habitacion_id, #[cite: 5]
-            ingreso_inmediato=bool(ingreso_inmediato), #[cite: 5]
+            cliente=str(cliente).strip(),
+            identificacion=str(identificacion).strip(),
+            contacto=str(contacto).strip(),
+            noches=noches_calculadas,
+            fecha_entrada=entrada,
+            fecha_salida=salida,
+            metodo_pago=metodo_pago,
+            empleado_id=empleado_id,
+            habitacion_id=habitacion_id,
+            ingreso_inmediato=bool(ingreso_inmediato),
         )
 
     def registrar_checkin(self, usuario_actual: dict, reserva_id) -> tuple[bool, str]:
@@ -139,13 +191,13 @@ class ReservaService:
 
         return self.dao.cancelar_reserva(reserva_id=reserva_id, empleado_id=empleado_id)
 
-    def obtener_llegadas_hoy(self):
-        """Reservas que esperan su ingreso hoy o de días anteriores."""
-        return self.dao.obtener_llegadas(datetime.today().date())
+    def obtener_reservas_pendientes(self):
+        """Todas las reservas en estado Pendiente, sin importar su fecha.
 
-    def obtener_salidas_hoy(self):
-        """Huéspedes que deben registrar su salida hoy."""
-        return self.dao.obtener_salidas(datetime.today().date())
+        Es la mesa de «Reservas pendientes»: el personal ve de una vez todo lo
+        reservado y todavía sin ingresar, no solo lo que entra hoy.
+        """
+        return self.dao.obtener_pendientes()
 
     def obtener_en_casa(self):
         """Huéspedes con estancia iniciada que siguen en el hotel.
@@ -166,9 +218,44 @@ class ReservaService:
         """
         return self.dao.obtener_todas()
 
-    def obtener_reservas_habitacion(self, habitacion_id):
-        """Reservas vigentes de una habitación, para no duplicar fechas."""
-        return self.dao.obtener_por_habitacion(habitacion_id)
+    # ------------------------------------------------------------------
+    # PAGOS
+    # ------------------------------------------------------------------
+    def obtener_cuentas(self):
+        """Cuentas de todas las reservas vigentes, con su saldo y estado de pago."""
+        return self.dao.obtener_cuentas()
+
+    def obtener_pagos_reserva(self, reserva_id):
+        """Historial de cobros de una reserva."""
+        return self.dao.obtener_pagos(reserva_id)
+
+    def registrar_pago(self, usuario_actual: dict, reserva_id, monto, metodo_pago) -> tuple[bool, str]:
+        """Cobra total o parcialmente una reserva.
+
+        El saldo real lo valida el DAO dentro de la transacción, porque puede
+        haber cambiado entre que el cajero abrió el diálogo y confirmó el cobro.
+        """
+        empleado_id = self._empleado_de_sesion(usuario_actual)
+        if empleado_id is None:
+            return False, "No hay una sesión de personal válida para registrar el pago."
+
+        if metodo_pago not in self.METODOS_PAGO:
+            return False, "El método de pago seleccionado no es válido."
+
+        try:
+            monto_decimal = Decimal(str(monto))
+        except (InvalidOperation, TypeError, ValueError):
+            return False, "El monto a cobrar no es válido."
+
+        if monto_decimal <= 0:
+            return False, "El monto a cobrar debe ser mayor a cero."
+
+        return self.dao.registrar_pago(
+            reserva_id=reserva_id,
+            monto=monto_decimal,
+            metodo_pago=metodo_pago,
+            empleado_id=empleado_id,
+        )
 
     @staticmethod
     def _parsear_fecha(fecha):

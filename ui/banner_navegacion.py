@@ -6,7 +6,6 @@ from utils.stylesheets import ESTILO_BANNER
 
 class BannerNavegacion(QWidget):
     """Cabecera del sistema: identidad, navegación por paneles y menú de sesión."""
-
     panel_solicitado = Signal(str)
     sesion_cerrada_solicitada = Signal()
 
@@ -46,9 +45,9 @@ class BannerNavegacion(QWidget):
         # NAVEGACIÓN PRINCIPAL
         # --------------------------------------------------
         self.opciones = [
-            ("dashboard", "Panel"),
+            ("dashboard", "Inicio"),
             ("catalogo", "Catálogo"),
-            ("recepcion", "Recepción"),
+            ("pagos", "Pagos"),
         ]
         for clave, titulo in self.opciones:
             boton = QPushButton(titulo)
@@ -95,9 +94,6 @@ class BannerNavegacion(QWidget):
         for nombre, boton in self.botones.items():
             boton.setChecked(nombre == clave)
         self.boton_activo = clave
-
-    def get_panel_activo(self):
-        return self.boton_activo
 
     @staticmethod
     def _etiqueta_rol(rol):

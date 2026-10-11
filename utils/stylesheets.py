@@ -278,6 +278,13 @@ COLORES_ESTATUS = {
     "Cancelada": "#c0392b",
 }
 
+# Colores del estado de la cuenta de una reserva (calculado a partir del saldo).
+COLORES_ESTADO_PAGO = {
+    "Pendiente": "#c0392b",
+    "Parcial": "#d68910",
+    "Pagado": "#2e9e5b",
+}
+
 # ----------------------------------------------------------------------
 # AUTENTICACION
 # ----------------------------------------------------------------------

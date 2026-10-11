@@ -42,20 +42,9 @@ class HabitacionService:
             hab["capacidad_texto"] = self._formatear_capacidad(hab.get("capacidad"))
             hab["precio"] = float(hab.get("precio") or 0)
             hab["mantenimiento"] = bool(hab.get("mantenimiento"))
+            hab["reserva_activa"] = bool(hab.get("reserva_activa"))
 
         return habitaciones
-
-    def obtener_por_id(self, habitacion_id):
-        """Trae una habitación puntual con su estatus en tiempo real."""
-        hab = self.dao.obtener_habitacion(habitacion_id)
-        if not hab:
-            return None
-        if not hab.get("imagen"):
-            hab["imagen"] = self.ruta_foto_defecto
-        hab["capacidad_texto"] = self._formatear_capacidad(hab.get("capacidad"))
-        hab["precio"] = float(hab.get("precio") or 0)
-        hab["mantenimiento"] = bool(hab.get("mantenimiento"))
-        return hab
 
     def obtener_resumen_ocupacion(self) -> dict:
         """Conteos del panel: base para el tablero de occupancy en tiempo real."""

@@ -13,6 +13,11 @@ class TarjetaHabitacion(QWidget):
     eliminar_solicitado = Signal(dict)
     mantenimiento_solicitado = Signal(dict)
 
+    # Botones de administración de tamaño uniforme: una columna ordenada en vez
+    # de una fila con anchos distintos que se veía desalineada.
+    ANCHO_BOTON = 116
+    ALTO_BOTON = 28
+
     def __init__(self, habitacion: dict, es_admin: bool = False, parent=None):
         super().__init__(parent)
         self.habitacion = habitacion
@@ -103,18 +108,52 @@ class TarjetaHabitacion(QWidget):
         # ACCIONES DE ADMINISTRACIÓN
         # --------------------------------------------------
         if self.es_admin:
-            self._agregar_boton("Mantenim.", self.mantenimiento_solicitado, "botonTarjeta")
-            self._agregar_boton("Editar", self.editar_solicitado, "botonTarjeta")
-            self._agregar_boton("Eliminar", self.eliminar_solicitado, "botonTarjetaPeligro")
+            layout_tarjeta.addLayout(self._crear_columna_acciones())
 
-    def _agregar_boton(self, texto, senal, estilo):
+    def _crear_columna_acciones(self):
+        """Botones de administración en columna, con ancho y alto uniformes.
+
+        Apilados y del mismo tamaño quedan prolijos y no compiten con el ancho
+        variable de los textos de la tarjeta.
+        """
+        columna = QVBoxLayout()
+        columna.setSpacing(4)
+        columna.addWidget(self._crear_boton_mantenimiento())
+        columna.addWidget(self._crear_boton("Editar", self.editar_solicitado, "botonTarjeta"))
+        columna.addWidget(self._crear_boton("Eliminar", self.eliminar_solicitado, "botonTarjetaPeligro"))
+        columna.addStretch()
+        return columna
+
+    def _crear_boton_mantenimiento(self):
+        """Botón que alterna el servicio según la situación real de la habitación.
+
+        Una habitación en mantenimiento ofrece "Habilitar" para devolverla a
+        servicio. Una habitación reservada u ocupada no puede salir de
+        operación, así que el botón queda deshabilitado y explica el motivo.
+        """
+        en_mantenimiento = bool(self.habitacion.get("mantenimiento"))
+        reserva_activa = bool(self.habitacion.get("reserva_activa"))
+
+        if en_mantenimiento:
+            boton = self._crear_boton("Habilitar", self.mantenimiento_solicitado, "botonTarjeta")
+            boton.setToolTip("Quitar el mantenimiento y devolver la habitación a servicio.")
+            return boton
+
+        boton = self._crear_boton("Mantenimiento", self.mantenimiento_solicitado, "botonTarjeta")
+        if reserva_activa:
+            boton.setEnabled(False)
+            boton.setCursor(Qt.ArrowCursor)
+            boton.setToolTip("No se puede poner en mantenimiento: la habitación está reservada u ocupada.")
+        else:
+            boton.setToolTip("Sacar la habitación de servicio para mantenimiento.")
+        return boton
+
+    def _crear_boton(self, texto, senal, estilo):
         boton = QPushButton(texto)
         boton.setObjectName(estilo)
-        boton.setFixedHeight(30)
+        boton.setFixedSize(self.ANCHO_BOTON, self.ALTO_BOTON)
         boton.setCursor(Qt.PointingHandCursor)
         boton.clicked.connect(lambda: senal.emit(self.habitacion))
-        layout = self.layout()
-        layout.addWidget(boton, alignment=Qt.AlignmentFlag.AlignVCenter)
         return boton
 
     def mousePressEvent(self, event):
