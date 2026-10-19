@@ -94,13 +94,53 @@ class HabitacionDAO:
         finally:
             self.db.desconectar()
 
+    def actualizar_precio_por_tipo(self, tipo, precio):
+        """Fija el precio por noche de todas las habitaciones de un mismo tipo.
+
+        Es la herramienta de tarifas del administrador: en vez de editar la
+        habitación una por una, ajusta de golpe la tarifa de un tipo completo.
+        Devuelve cuántas habitaciones quedaron con el nuevo precio.
+        """
+        conexion = self.db.conectar()
+        if not conexion:
+            return False, "No hay conexión con el servidor de base de datos."
+
+        try:
+            cursor = conexion.cursor()
+            # Se cuenta primero cuántas habitaciones hay del tipo: rowcount de un
+            # UPDATE solo refleja las filas que cambiaron, así que fijar un precio
+            # que ya estaba en todas devolvería 0 y parecería que no hay ninguna.
+            cursor.execute(
+                "SELECT COUNT(*) FROM registro_habitacion WHERE tipo = %s",
+                (tipo,),
+            )
+            total = cursor.fetchone()[0]
+            if total == 0:
+                cursor.close()
+                return False, f"No hay habitaciones del tipo «{tipo}» para actualizar."
+
+            cursor.execute(
+                "UPDATE registro_habitacion SET precio = %s WHERE tipo = %s",
+                (precio, tipo),
+            )
+            conexion.commit()
+            cursor.close()
+            return True, f"Precio actualizado en {total} habitación(es) de tipo {tipo}."
+        except Error as err:
+            conexion.rollback()
+            print(f"Error al actualizar el precio por tipo: {err}")
+            return False, "No se pudo actualizar el precio."
+        finally:
+            self.db.desconectar()
+
     def alternar_mantenimiento(self, id):
         """Pone la habitación fuera de servicio o la devuelve a operación.
 
-        Solo entra en mantenimiento una habitación sin reservas activas: sacar
-        de servicio una habitación con una reserva pendiente o una estancia en
-        curso dejaría esa reserva sin habitación. Salir de mantenimiento siempre
-        está permitido.
+        No se puede sacar de servicio una habitación ocupada o reservada para
+        hoy: se usa la misma regla que el estatus del catálogo, así que toda
+        habitación que se vea "Disponible" puede pasar a mantenimiento. Las
+        reservas antiguas o futuras no la bloquean. Salir de mantenimiento
+        siempre está permitido.
         """
         conexion = self.db.conectar()
         if not conexion:
@@ -114,7 +154,12 @@ class HabitacionDAO:
                     EXISTS (
                         SELECT 1 FROM Reserva r
                         WHERE r.habitacion_id = h.id
-                        AND r.estado IN ('Pendiente', 'Iniciada')
+                        AND (
+                            (r.estado = 'Iniciada' AND r.fecha_entrada <= CURDATE())
+                            OR (r.estado = 'Pendiente'
+                                AND r.fecha_entrada <= CURDATE()
+                                AND r.fecha_salida >= CURDATE())
+                        )
                     ) AS reserva_activa
                 FROM registro_habitacion h
                 WHERE h.id = %s
@@ -131,8 +176,8 @@ class HabitacionDAO:
             if not en_mantenimiento and fila["reserva_activa"]:
                 cursor.close()
                 return False, (
-                    "No se puede poner en mantenimiento: la habitación tiene una "
-                    "reserva o estancia activa."
+                    "No se puede poner en mantenimiento: la habitación está "
+                    "ocupada o reservada para hoy."
                 )
 
             cursor.execute(
@@ -180,7 +225,12 @@ class HabitacionDAO:
                 EXISTS (
                     SELECT 1 FROM Reserva r
                     WHERE r.habitacion_id = h.id
-                    AND r.estado IN ('Pendiente', 'Iniciada')
+                    AND (
+                        (r.estado = 'Iniciada' AND r.fecha_entrada <= CURDATE())
+                        OR (r.estado = 'Pendiente'
+                            AND r.fecha_entrada <= CURDATE()
+                            AND r.fecha_salida >= CURDATE())
+                    )
                 ) AS reserva_activa
             FROM registro_habitacion h
             ORDER BY h.no_habitacion

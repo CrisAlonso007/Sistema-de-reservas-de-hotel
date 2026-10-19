@@ -27,7 +27,7 @@ class RegistroHuespedDialog(QDialog):
         self.habitacion_service = habitacion_service
         self.reserva_service = reserva_service
 
-        self.setWindowTitle("Registrar Huésped")
+        self.setWindowTitle("Registro de huésped")
         self.setStyleSheet(ESTILO_PANEL)
         self.setObjectName("panelRaiz")
         self._acotar_tamano()
@@ -119,6 +119,9 @@ class RegistroHuespedDialog(QDialog):
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
         self.cmb_habitacion.setMinimumContentsLength(20)
+        self.cmb_habitacion.setToolTip(
+            "Solo se ofrecen las habitaciones libres para las fechas y noches elegidas."
+        )
         layout.addRow(self._etiqueta("Habitación:"), self.cmb_habitacion)
 
         self.lbl_info_habitacion = QLabel("—")
@@ -144,9 +147,18 @@ class RegistroHuespedDialog(QDialog):
         layout.setSpacing(10)
         layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        self.txt_cliente = self._crear_campo("Nombre completo del huésped *", 100)
-        self.txt_identificacion = self._crear_campo("Documento de identidad *", 30)
-        self.txt_contacto = self._crear_campo("Teléfono *", 30)
+        self.txt_cliente = self._crear_campo(
+            "Nombre completo del huésped *", 100,
+            "Nombre y apellidos del huésped, tal como figuran en su documento.",
+        )
+        self.txt_identificacion = self._crear_campo(
+            "Documento de identidad *", 30,
+            "Cédula o pasaporte: entre 5 y 20 caracteres (letras, números y guiones).",
+        )
+        self.txt_contacto = self._crear_campo(
+            "Teléfono *", 30,
+            "Teléfono de contacto del huésped (con o sin indicativo).",
+        )
 
         layout.addRow(self._etiqueta("Huésped:"), self.txt_cliente)
         layout.addRow(self._etiqueta("Identificación:"), self.txt_identificacion)
@@ -174,6 +186,9 @@ class RegistroHuespedDialog(QDialog):
             "Reserva para una fecha futura", "reserva"
         )
         self.cmb_tipo_estancia.setFixedHeight(32)
+        self.cmb_tipo_estancia.setToolTip(
+            "Elija si el huésped se aloja ahora o si desea reservar para una fecha futura."
+        )
         layout.addRow(self._etiqueta("Tipo de estancia:"), self.cmb_tipo_estancia)
 
         self.lbl_efecto_tipo = QLabel("")
@@ -192,6 +207,7 @@ class RegistroHuespedDialog(QDialog):
         self.txt_noches.setRange(1, 365)
         self.txt_noches.setValue(1)
         self.txt_noches.setFixedHeight(32)
+        self.txt_noches.setToolTip("Cantidad de noches de la estadía (de 1 a 365).")
         layout.addRow(self._etiqueta("Noches:"), self.txt_noches)
 
         self.lbl_fecha_salida = QLabel("—")
@@ -201,6 +217,7 @@ class RegistroHuespedDialog(QDialog):
         self.cmb_metodo_pago = QComboBox()
         self.cmb_metodo_pago.addItems(ReservaService.METODOS_PAGO)
         self.cmb_metodo_pago.setFixedHeight(32)
+        self.cmb_metodo_pago.setToolTip("Forma de pago acordada con el huésped.")
         layout.addRow(self._etiqueta("Método de pago:"), self.cmb_metodo_pago)
 
         fila_total = QHBoxLayout()
@@ -225,6 +242,7 @@ class RegistroHuespedDialog(QDialog):
         btn_cancelar.setObjectName("accionSecundaria")
         btn_cancelar.setFixedHeight(40)
         btn_cancelar.setCursor(Qt.PointingHandCursor)
+        btn_cancelar.setToolTip("Cierra el formulario sin guardar cambios.")
         btn_cancelar.clicked.connect(self.reject)
         layout.addWidget(btn_cancelar)
 
@@ -233,15 +251,18 @@ class RegistroHuespedDialog(QDialog):
         self.btn_registrar.setFixedHeight(40)
         self.btn_registrar.setMinimumWidth(190)
         self.btn_registrar.setCursor(Qt.PointingHandCursor)
+        self.btn_registrar.setToolTip("Guarda la estancia y abre la reserva del huésped.")
         layout.addWidget(self.btn_registrar)
 
         return layout
 
-    def _crear_campo(self, placeholder, maxlen):
+    def _crear_campo(self, placeholder, maxlen, ayuda=""):
         campo = QLineEdit()
         campo.setPlaceholderText(placeholder)
         campo.setMaxLength(maxlen)
         campo.setFixedHeight(32)
+        if ayuda:
+            campo.setToolTip(ayuda)
         return campo
 
     def _pintar_campos(self, valido: bool):

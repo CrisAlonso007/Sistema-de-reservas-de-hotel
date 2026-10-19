@@ -1,14 +1,127 @@
-# ui/dialogo_cobro.py
+# ui/dialogs.py
 from decimal import Decimal, InvalidOperation
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QFormLayout,
-    QDoubleSpinBox, QComboBox, QPushButton, QMessageBox, QTableWidget,
-    QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QComboBox,
+    QDateEdit, QPushButton, QMessageBox, QGroupBox, QDoubleSpinBox,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QDate
 from PySide6.QtGui import QColor
 from services.reserva_service import ReservaService
 from utils.stylesheets import ESTILO_PANEL, ESTILO_TABLA
+
+class DialogoEditarReserva(QDialog):
+    """Corrige las fechas y la habitación de una reserva pendiente.
+
+    Es una herramienta del administrador: el servicio vuelve a validar el rol,
+    el solape y los parámetros del hotel antes de guardar.
+    """
+
+    guardado = Signal()
+
+    def __init__(self, reserva, usuario_actual, reserva_service,
+                 habitacion_service, parent=None):
+        super().__init__(parent)
+        self.reserva = reserva
+        self.usuario_actual = usuario_actual or {}
+        self.reserva_service = reserva_service
+        self.habitacion_service = habitacion_service
+
+        self.setWindowTitle("Editar reserva")
+        self.setModal(True)
+        self.setMinimumWidth(420)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
+
+        lbl_aviso = QLabel(
+            f"Huésped: {reserva['cliente']}  ·  Documento: {reserva['identificacion']}"
+        )
+        lbl_aviso.setObjectName("panelSubtitulo")
+        layout.addWidget(lbl_aviso)
+
+        formulario = QFormLayout()
+        formulario.setSpacing(8)
+
+        self.cmb_habitacion = QComboBox()
+        self._cargar_habitaciones(reserva.get("habitacion_id"))
+
+        self.dt_entrada = QDateEdit()
+        self.dt_entrada.setCalendarPopup(True)
+        self.dt_entrada.setDisplayFormat("yyyy-MM-dd")
+        self.dt_entrada.setDate(self._a_qdate(reserva.get("fecha_entrada")))
+        self.dt_entrada.setFixedHeight(32)
+
+        self.dt_salida = QDateEdit()
+        self.dt_salida.setCalendarPopup(True)
+        self.dt_salida.setDisplayFormat("yyyy-MM-dd")
+        self.dt_salida.setDate(self._a_qdate(reserva.get("fecha_salida")))
+        self.dt_salida.setFixedHeight(32)
+
+        self.lbl_noches = QLabel("")
+        self.lbl_noches.setObjectName("panelSubtitulo")
+
+        formulario.addRow("Habitación:", self.cmb_habitacion)
+        formulario.addRow("Entrada:", self.dt_entrada)
+        formulario.addRow("Salida:", self.dt_salida)
+        formulario.addRow("", self.lbl_noches)
+        layout.addLayout(formulario)
+
+        self.dt_entrada.dateChanged.connect(self._actualizar_noches)
+        self.dt_salida.dateChanged.connect(self._actualizar_noches)
+        self._actualizar_noches()
+
+        botones = QHBoxLayout()
+        botones.addStretch()
+        btn_cancelar = QPushButton("Cancelar")
+        btn_cancelar.setObjectName("accionSecundaria")
+        btn_cancelar.clicked.connect(self.reject)
+        btn_guardar = QPushButton("Guardar cambios")
+        btn_guardar.setObjectName("accionPrimaria")
+        btn_guardar.clicked.connect(self._guardar)
+        botones.addWidget(btn_cancelar)
+        botones.addWidget(btn_guardar)
+        layout.addLayout(botones)
+
+    def _cargar_habitaciones(self, actual_id):
+        habitaciones = self.habitacion_service.obtener_todas()
+        for habitacion in habitaciones:
+            etiqueta = f"{habitacion['numero']} · {habitacion['tipo']}"
+            self.cmb_habitacion.addItem(etiqueta, habitacion["id"])
+            if habitacion["id"] == actual_id:
+                self.cmb_habitacion.setCurrentIndex(self.cmb_habitacion.count() - 1)
+
+    @staticmethod
+    def _a_qdate(valor):
+        if hasattr(valor, "year") and hasattr(valor, "month") and hasattr(valor, "day"):
+            return QDate(valor.year, valor.month, valor.day)
+        fecha = QDate.fromString(str(valor), "yyyy-MM-dd")
+        return fecha if fecha.isValid() else QDate.currentDate()
+
+    def _actualizar_noches(self):
+        noches = self.dt_entrada.date().daysTo(self.dt_salida.date())
+        if noches > 0:
+            self.lbl_noches.setText(f"{noches} noche(s). El total se recalcula al guardar.")
+        else:
+            self.lbl_noches.setText("La salida debe ser posterior a la entrada.")
+
+    def _guardar(self):
+        habitacion_id = self.cmb_habitacion.currentData()
+        exito, mensaje = self.reserva_service.editar_reserva(
+            usuario_actual=self.usuario_actual,
+            reserva_id=self.reserva["id"],
+            fecha_entrada=self.dt_entrada.date().toString("yyyy-MM-dd"),
+            fecha_salida=self.dt_salida.date().toString("yyyy-MM-dd"),
+            habitacion_id=habitacion_id,
+        )
+        if not exito:
+            QMessageBox.warning(self, "No se pudo guardar", mensaje)
+            return
+        QMessageBox.information(self, "Reserva actualizada", mensaje)
+        self.guardado.emit()
+        self.accept()
+
 
 class DialogoCobro(QDialog):
     """Desglose de la cuenta de una reserva y registro del cobro.
@@ -27,7 +140,7 @@ class DialogoCobro(QDialog):
         self.reserva = reserva
         self.saldo = self._dec(reserva.get("saldo", 0))
 
-        self.setWindowTitle("Cobrar cuenta")
+        self.setWindowTitle("Cobro de estancia")
         self.setModal(True)
         self.setObjectName("panelRaiz")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -137,6 +250,9 @@ class DialogoCobro(QDialog):
         self.spn_monto.setValue(float(self.saldo if self.saldo > 0 else Decimal("0.01")))
         self.spn_monto.setFixedHeight(32)
         self.spn_monto.setEnabled(self.saldo > 0)
+        self.spn_monto.setToolTip(
+            "Importe a abonar. No puede superar el saldo pendiente de la cuenta."
+        )
         form.addRow("Monto a cobrar:", self.spn_monto)
 
         self.cmb_metodo = QComboBox()
@@ -146,6 +262,7 @@ class DialogoCobro(QDialog):
             self.cmb_metodo.setCurrentText(metodo_actual)
         self.cmb_metodo.setFixedHeight(32)
         self.cmb_metodo.setEnabled(self.saldo > 0)
+        self.cmb_metodo.setToolTip("Forma de pago del cobro que se va a registrar.")
         form.addRow("Método de pago:", self.cmb_metodo)
 
         if self.saldo <= 0:
@@ -164,6 +281,7 @@ class DialogoCobro(QDialog):
         btn_cancelar.setObjectName("accionSecundaria")
         btn_cancelar.setFixedHeight(38)
         btn_cancelar.setCursor(Qt.PointingHandCursor)
+        btn_cancelar.setToolTip("Cierra la ventana sin registrar ningún cobro.")
         btn_cancelar.clicked.connect(self.reject)
         layout.addWidget(btn_cancelar)
 
@@ -173,6 +291,9 @@ class DialogoCobro(QDialog):
         self.btn_cobrar.setMinimumWidth(150)
         self.btn_cobrar.setCursor(Qt.PointingHandCursor)
         self.btn_cobrar.setEnabled(self.saldo > 0)
+        self.btn_cobrar.setToolTip(
+            "Registra el cobro y abona el importe a la cuenta de la reserva."
+        )
         self.btn_cobrar.clicked.connect(self._registrar)
         layout.addWidget(self.btn_cobrar)
 

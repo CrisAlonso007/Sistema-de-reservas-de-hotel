@@ -58,11 +58,25 @@ ACCIONES_EXCLUSIVAS_DE_ADMIN = (
     "editar habitación",
     "eliminar habitación",
     "cambiar mantenimiento",
+    "gestionar personal",
+    "editar parámetros del hotel",
+    "ajustar tarifas",
+    "ver reportes",
+    "editar reserva",
+    "forzar salida con deuda",
+    "reactivar reserva",
+    "cancelar estancia iniciada",
 )
+
 
 MENSAJE_SIN_PERMISO = (
     "No tiene permisos para realizar esta operación. "
     "Solo un administrador puede modificar el catálogo de habitaciones."
+)
+
+MENSAJE_SOLO_ADMIN = (
+    "No tiene permisos para realizar esta operación. "
+    "Es una acción exclusiva del administrador del hotel."
 )
 
 

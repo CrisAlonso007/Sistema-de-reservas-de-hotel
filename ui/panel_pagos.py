@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from services.reserva_service import ReservaService
-from ui.dialogo_cobro import DialogoCobro
+from ui.dialogs import DialogoCobro
 from utils.stylesheets import COLORES_ESTADO_PAGO, ESTILO_PANEL, ESTILO_TABLA
 
 class PanelPagos(QWidget):
@@ -64,6 +64,7 @@ class PanelPagos(QWidget):
         btn_actualizar.setObjectName("accionSecundaria")
         btn_actualizar.setCursor(Qt.PointingHandCursor)
         btn_actualizar.setFixedHeight(38)
+        btn_actualizar.setToolTip("Vuelve a leer las cuentas y sus saldos.")
         btn_actualizar.clicked.connect(self.refrescar)
         layout.addWidget(btn_actualizar)
 
@@ -110,6 +111,7 @@ class PanelPagos(QWidget):
         self.txt_buscar.setPlaceholderText("Buscar por huésped, habitación o documento...")
         self.txt_buscar.setClearButtonEnabled(True)
         self.txt_buscar.setFixedHeight(30)
+        self.txt_buscar.setToolTip("Filtra las cuentas por huésped, habitación o documento.")
         self.txt_buscar.textChanged.connect(self._filtrar)
         layout.addWidget(self.txt_buscar, stretch=1)
 
@@ -119,6 +121,7 @@ class PanelPagos(QWidget):
         for estado in ReservaService.ESTADOS_PAGO:
             self.cmb_estado_pago.addItem(ReservaService.etiqueta_estado_pago(estado), estado)
         self.cmb_estado_pago.setFixedHeight(30)
+        self.cmb_estado_pago.setToolTip("Muestra solo las cuentas del estado de pago elegido.")
         self.cmb_estado_pago.currentIndexChanged.connect(self._filtrar)
         layout.addWidget(self.cmb_estado_pago)
 
@@ -255,6 +258,15 @@ class PanelPagos(QWidget):
     # ------------------------------------------------------------------
     # COBRO
     # ------------------------------------------------------------------
+    def buscar(self, texto):
+        """Deja la tabla filtrada por el huésped indicado.
+
+        Lo usa el tablero: al pulsar un nombre en «Cuentas por cobrar» se
+        llega aquí ya con esa cuenta aislada, lista para pulsar «Cobrar».
+        """
+        self.txt_buscar.setText(str(texto or ""))
+        self._filtrar()
+
     def _abrir_cobro(self, cuenta):
         dialogo = DialogoCobro(
             usuario_actual=self.usuario_actual,

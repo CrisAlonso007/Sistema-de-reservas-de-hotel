@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize, Signal
 from utils.stylesheets import ESTILO_PANEL
-from ui.tarjetas_lista import TarjetaHabitacion
+from ui.components import TarjetaHabitacion
 
 class PanelCatalogo(QWidget):
     """Listado de habitaciones con su ocupación en tiempo real y acciones de administración."""

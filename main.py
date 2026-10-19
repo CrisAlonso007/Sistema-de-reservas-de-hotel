@@ -39,6 +39,7 @@ class AppController:
             usuario_actual=usuario_actual,
             habitacion_service=self.servicio_habitaciones,
             reserva_service=self.servicio_reservas,
+            autenticacion_service=self.autenticacion_service,
         )
         self.main_window.sesion_cerrada.connect(self.volver_al_login)
         self.main_window.show()

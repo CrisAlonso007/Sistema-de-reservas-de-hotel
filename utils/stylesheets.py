@@ -80,6 +80,26 @@ ESTILO_BANNER = """
     QPushButton#bannerUsuario:hover {
         background-color: #3a4f68;
     }
+    QPushButton#campanaNotificaciones {
+        color: #cfd8e3;
+        background-color: transparent;
+        border: 1px solid #46596e;
+        border-radius: 6px;
+        padding: 7px 12px;
+        font-size: 12px;
+    }
+    QPushButton#campanaNotificaciones:hover {
+        background-color: #2b3d52;
+        color: #ffffff;
+    }
+    /* Cuando hay avisos pendientes la campana se pinta en rojo para llamar la
+       atención sin recurrir a un ícono externo. */
+    QPushButton#campanaNotificaciones[conAvisos="true"] {
+        color: #ffffff;
+        background-color: #c0392b;
+        border: 1px solid #c0392b;
+        font-weight: bold;
+    }
 """
 
 # ----------------------------------------------------------------------
@@ -111,6 +131,30 @@ ESTILO_PANEL = """
     QLabel#kpiTitulo {
         font-size: 11px;
         color: #6b7c8f;
+    }
+    QFrame#tarjetaDeuda {
+        background-color: #ffffff;
+        border: 1px solid #dfe4ea;
+        border-radius: 10px;
+    }
+    QLabel#deudaTitulo {
+        font-size: 11px;
+        color: #6b7c8f;
+        font-weight: bold;
+    }
+    QLabel#deudaMonto {
+        color: #c0392b;
+        font-size: 22px;
+        font-weight: bold;
+    }
+    QLabel#deudaItem {
+        font-size: 12px;
+        color: #1f2d3d;
+    }
+    QLabel#deudaMontoItem {
+        font-size: 12px;
+        color: #c0392b;
+        font-weight: bold;
     }
     QPushButton#accionPrimaria {
         background-color: #2f6fb0;
@@ -286,6 +330,45 @@ COLORES_ESTADO_PAGO = {
 }
 
 # ----------------------------------------------------------------------
+# PANEL DE NOTIFICACIONES (campana de avisos)
+# ----------------------------------------------------------------------
+ESTILO_NOTIFICACIONES = """
+    QFrame#popupNotificaciones {
+        background-color: #ffffff;
+        border: 1px solid #c3ccd6;
+        border-radius: 10px;
+    }
+    QLabel#popupTitulo {
+        color: #1f2d3d;
+        font-size: 14px;
+        font-weight: bold;
+    }
+    QLabel#popupSubtitulo {
+        color: #6b7c8f;
+        font-size: 11px;
+    }
+    QFrame#avisoItem {
+        background-color: #ffffff;
+        border: 1px solid #dfe4ea;
+        border-radius: 8px;
+    }
+    QLabel#avisoTitulo {
+        color: #c0392b;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    QLabel#avisoTexto {
+        color: #1f2d3d;
+        font-size: 12px;
+    }
+    QLabel#avisoVacio {
+        color: #6b7c8f;
+        font-size: 12px;
+        font-style: italic;
+    }
+"""
+
+# ----------------------------------------------------------------------
 # AUTENTICACION
 # ----------------------------------------------------------------------
 ESTILO_LOGIN = """
@@ -324,6 +407,16 @@ ESTILO_LOGIN = """
     }
     QPushButton#loginBoton:pressed {
         background-color: #2a629b;
+    }
+    QPushButton#loginEnlace {
+        background: transparent;
+        border: none;
+        color: #9fb3c8;
+        font-size: 12px;
+        text-decoration: underline;
+    }
+    QPushButton#loginEnlace:hover {
+        color: #dbe6f1;
     }
     QLabel#loginPie {
         color: #9fb3c8;

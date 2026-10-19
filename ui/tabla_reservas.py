@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from services.reserva_service import ReservaService
+from utils.seguridad import es_administrador
 from utils.stylesheets import COLORES_ESTATUS, ESTILO_TABLA
 
 class TablaReservas(QWidget):
@@ -22,6 +23,9 @@ class TablaReservas(QWidget):
     """
 
     ocupacion_cambiada = Signal()
+    # El administrador pide editar una reserva: la tabla no conoce el formulario
+    # (ni el catálogo de habitaciones), así que delega en quien la contiene.
+    editar_reserva_solicitada = Signal(dict)
 
     ANCHO_COLUMNA_ACCIONES = 210
 
@@ -97,6 +101,7 @@ class TablaReservas(QWidget):
         self.txt_buscar.setPlaceholderText("Buscar por huésped, habitación o documento...")
         self.txt_buscar.setClearButtonEnabled(True)
         self.txt_buscar.setFixedHeight(30)
+        self.txt_buscar.setToolTip("Filtra las filas por huésped, habitación o documento.")
         self.txt_buscar.textChanged.connect(self.filtrar)
         layout.addWidget(self.txt_buscar, stretch=1)
 
@@ -106,6 +111,7 @@ class TablaReservas(QWidget):
         for estado in ReservaService.ESTADOS_RESERVA:
             self.cmb_filtro_estado.addItem(ReservaService.etiqueta_estado(estado), estado)
         self.cmb_filtro_estado.setFixedHeight(30)
+        self.cmb_filtro_estado.setToolTip("Muestra solo las reservas del estado elegido.")
         self.cmb_filtro_estado.currentIndexChanged.connect(self.filtrar)
         layout.addWidget(self.cmb_filtro_estado)
 
@@ -270,12 +276,15 @@ class TablaReservas(QWidget):
         layout.setContentsMargins(2, 3, 2, 3)
         layout.setSpacing(4)
 
-        for texto, ranura, ayuda in acciones:
+        for texto, ranura, ayuda, habilitada in acciones:
             btn = QPushButton(texto)
             btn.setObjectName("accionTablaPrimaria")
             btn.setCursor(Qt.PointingHandCursor)
             btn.setFixedHeight(28)
             btn.setToolTip(ayuda)
+            btn.setEnabled(habilitada)
+            if not habilitada:
+                btn.setCursor(Qt.ArrowCursor)
             # `ranura` se fija como valor por defecto: si el cierre la leyera del
             # ámbito compartido, los botones acabarían ejecutando la última
             # acción asignada (cancelar en vez de alojar, por ejemplo).
@@ -283,12 +292,25 @@ class TablaReservas(QWidget):
             layout.addWidget(btn)
 
         if len(acciones) > 1:
-            self.tabla.setRowHeight(fila, 68)
+            # Una fila por botón: con varias acciones hay que dar altura extra o
+            # los botones se solapan dentro de la celda.
+            self.tabla.setRowHeight(fila, 32 * len(acciones) + 6)
         self.tabla.setCellWidget(fila, len(self.columnas), contenedor)
 
     def _acciones(self, reserva):
-        """Acciones que admite una reserva según su estado y su fecha."""
+        """Acciones que admite una reserva según su estado y su fecha.
+
+        Cada acción es una tupla ``(texto, ranura, ayuda, habilitada)``. La
+        liberación de la habitación (registrar salida) siempre se puede pulsar:
+        si la cuenta todavía tiene saldo, la propia acción avisa con un mensaje
+        en vez de dejar el botón deshabilitado.
+
+        Cuando la sesión es de administrador se suman las acciones excepcionales
+        (editar, forzar salida, anular estancia y reactivar); el servicio vuelve
+        a comprobar el rol, así que la interfaz solo decide qué se ve.
+        """
         estado = reserva["estado"]
+        es_admin = es_administrador(self.usuario_actual)
         acciones = []
 
         if estado == "Pendiente":
@@ -297,21 +319,59 @@ class TablaReservas(QWidget):
                     "Marcar como ocupada",
                     self._registrar_checkin,
                     "Registrar la llegada del huésped y ocupar la habitación.",
+                    True,
                 ))
             acciones.append((
                 "Cancelar reserva",
                 self._cancelar_reserva,
                 "Anular la reserva y liberar la habitación.",
+                True,
             ))
+            if es_admin:
+                acciones.append((
+                    "Editar reserva",
+                    self._solicitar_edicion,
+                    "Corregir las fechas o la habitación de la reserva (administrador).",
+                    True,
+                ))
         elif estado == "Iniciada":
             acciones.append((
                 "Registrar salida",
                 self._registrar_salida,
-                "Registrar la salida del huésped y liberar la habitación.",
+                "Registrar la salida del huésped y liberar la habitación. "
+                "Requiere la cuenta pagada.",
+                True,
+            ))
+            if es_admin:
+                acciones.append((
+                    "Forzar salida",
+                    self._forzar_salida,
+                    "Liberar la habitación aunque la cuenta quede con deuda (administrador).",
+                    True,
+                ))
+                acciones.append((
+                    "Anular estancia",
+                    self._anular_estancia,
+                    "Cancelar la estancia en curso y liberar la habitación (administrador).",
+                    True,
+                ))
+        elif estado == "Cancelada" and es_admin:
+            acciones.append((
+                "Reactivar reserva",
+                self._reactivar_reserva,
+                "Devolver la reserva cancelada al estado Reservada (administrador).",
+                True,
             ))
 
-        # «Finalizada» y «Cancelada» son estados cerrados: no admiten acciones.
+        # «Finalizada» es un estado cerrado: no admite acciones.
         return acciones
+
+    @staticmethod
+    def _saldo(reserva):
+        try:
+            return float(reserva.get("saldo", 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
 
     def _registrar_checkin(self, reserva):
         if not self._confirmar(
@@ -322,6 +382,18 @@ class TablaReservas(QWidget):
         self._ejecutar(self.reserva_service.registrar_checkin, reserva)
 
     def _registrar_salida(self, reserva):
+        saldo = self._saldo(reserva)
+        if saldo > 0:
+            QMessageBox.warning(
+                self,
+                "No se puede registrar la salida",
+                "No se puede marcar la habitación como disponible porque no se "
+                "ha registrado el pago de la cuenta.\n\n"
+                f"Saldo pendiente: ${self.reserva_service.formato_monto(saldo)}.\n"
+                "Cobre la cuenta antes de liberar la habitación.",
+            )
+            return
+
         if not self._confirmar(
             "Registrar salida",
             f"¿Registrar la salida de {reserva['cliente']} de la habitación {reserva['habitacion_numero']}?",
@@ -337,10 +409,56 @@ class TablaReservas(QWidget):
             return
         self._ejecutar(self.reserva_service.cancelar_reserva, reserva)
 
+    def _solicitar_edicion(self, reserva):
+        """Delega en la ventana principal la apertura del formulario de edición."""
+        self.editar_reserva_solicitada.emit(reserva)
+
+    def _forzar_salida(self, reserva):
+        saldo = self._saldo(reserva)
+        if not self._confirmar(
+            "Forzar salida",
+            f"¿Liberar la habitación {reserva['habitacion_numero']} aunque la cuenta "
+            f"de {reserva['cliente']} quede con un saldo de "
+            f"${self.reserva_service.formato_monto(saldo)}?\n\n"
+            "Esta salida con deuda es exclusiva del administrador.",
+        ):
+            return
+        exito, mensaje = self.reserva_service.registrar_salida(
+            usuario_actual=self.usuario_actual, reserva_id=reserva["id"], forzar=True
+        )
+        self._informar(exito, mensaje)
+
+    def _anular_estancia(self, reserva):
+        if not self._confirmar(
+            "Anular estancia",
+            f"¿Cancelar la estancia en curso de {reserva['cliente']} en la habitación "
+            f"{reserva['habitacion_numero']}?\n\nLa habitación quedará disponible. "
+            "Es una acción exclusiva del administrador.",
+        ):
+            return
+        exito, mensaje = self.reserva_service.cancelar_reserva(
+            usuario_actual=self.usuario_actual, reserva_id=reserva["id"], forzar=True
+        )
+        self._informar(exito, mensaje)
+
+    def _reactivar_reserva(self, reserva):
+        if not self._confirmar(
+            "Reactivar reserva",
+            f"¿Devolver la reserva de {reserva['cliente']} al estado «Reservada»?",
+        ):
+            return
+        exito, mensaje = self.reserva_service.reactivar_reserva(
+            usuario_actual=self.usuario_actual, reserva_id=reserva["id"]
+        )
+        self._informar(exito, mensaje)
+
     def _ejecutar(self, operacion, reserva):
         # El servicio toma la sesión completa para validar el rol y obtener el
         # identificador del empleado responsable de la operación.
         exito, mensaje = operacion(usuario_actual=self.usuario_actual, reserva_id=reserva["id"])
+        self._informar(exito, mensaje)
+
+    def _informar(self, exito, mensaje):
         if exito:
             QMessageBox.information(self, "Operación registrada", mensaje)
         else:

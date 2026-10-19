@@ -6,6 +6,7 @@ from utils.seguridad import (
     puede_administrar_catalogo,
     sesion_valida,
 )
+from utils.validaciones import es_precio_valido
 
 class HabitacionService:
     """Reglas de negocio del catálogo de habitaciones y su estado de ocupación.
@@ -193,6 +194,19 @@ class HabitacionService:
             return False, "Debe indicarse la habitación."
 
         return self.dao.alternar_mantenimiento(id=habitacion_id)
+
+    def actualizar_precio_por_tipo(self, usuario_actual: dict, tipo, precio) -> tuple[bool, str]:
+        """Ajusta de una vez el precio por noche de todas las habitaciones de un tipo."""
+        rechazo = self._sin_permiso(usuario_actual)
+        if rechazo:
+            return rechazo
+
+        if tipo not in self.TIPOS_HABITACION:
+            return False, "El tipo de habitación seleccionado no es válido."
+        if not es_precio_valido(precio):
+            return False, "El precio debe ser un número mayor a cero."
+
+        return self.dao.actualizar_precio_por_tipo(tipo=tipo, precio=precio)
 
     @staticmethod
     def _formatear_capacidad(capacidad) -> str:

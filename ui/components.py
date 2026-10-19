@@ -1,6 +1,6 @@
-# ui/tarjetas_lista.py
+# ui/components.py
 import os
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame
 from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt, Signal, QEvent
 from utils.stylesheets import COLORES_ESTATUS, TARJETAS_ESTILO
@@ -143,7 +143,7 @@ class TarjetaHabitacion(QWidget):
         if reserva_activa:
             boton.setEnabled(False)
             boton.setCursor(Qt.ArrowCursor)
-            boton.setToolTip("No se puede poner en mantenimiento: la habitación está reservada u ocupada.")
+            boton.setToolTip("No se puede poner en mantenimiento: la habitación está ocupada o reservada para hoy.")
         else:
             boton.setToolTip("Sacar la habitación de servicio para mantenimiento.")
         return boton
@@ -167,3 +167,33 @@ class TarjetaHabitacion(QWidget):
         if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
             self.detalles_solicitados.emit(self.habitacion)
         return super().eventFilter(watched, event)
+
+
+class TarjetaKpi(QFrame):
+    """Indicador numérico del tablero."""
+
+    def __init__(self, titulo, color, parent=None):
+        super().__init__(parent)
+        self.setObjectName("tarjetaKpi")
+        self.setFixedHeight(92)
+        self.setMinimumWidth(150)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(2)
+
+        self.lbl_titulo = QLabel(titulo)
+        self.lbl_titulo.setObjectName("kpiTitulo")
+        self.lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.lbl_titulo)
+
+        self.lbl_valor = QLabel("0")
+        self.lbl_valor.setObjectName("kpiValor")
+        self.lbl_valor.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_valor.setStyleSheet(f"color: {color};")
+        layout.addWidget(self.lbl_valor)
+
+    def set_valor(self, valor):
+        self.lbl_valor.setText(str(valor))
+
+

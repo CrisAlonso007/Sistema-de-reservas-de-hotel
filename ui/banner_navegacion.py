@@ -6,8 +6,13 @@ from utils.stylesheets import ESTILO_BANNER
 
 class BannerNavegacion(QWidget):
     """Cabecera del sistema: identidad, navegación por paneles y menú de sesión."""
+
     panel_solicitado = Signal(str)
     sesion_cerrada_solicitada = Signal()
+    # Abre la configuración del hotel (solo administrador).
+    configuracion_solicitada = Signal()
+    # Abre el popup de avisos junto al botón de la campana.
+    notificaciones_solicitada = Signal()
 
     def __init__(self, usuario_actual: dict = None, parent=None):
         super().__init__(parent)
@@ -19,6 +24,7 @@ class BannerNavegacion(QWidget):
 
         self.boton_activo = None
         self.botones = {}
+        self.es_admin = self.usuario_actual.get("rol") == "administrador"
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(18, 10, 18, 10)
@@ -42,19 +48,24 @@ class BannerNavegacion(QWidget):
         layout.addSpacing(30)
 
         # --------------------------------------------------
-        # NAVEGACIÓN PRINCIPAL
+        # NAVEGACIÓN PRINCIPAL (igual para ambos perfiles)
         # --------------------------------------------------
+        # La pestaña «Reportes» se oculta dentro del propio módulo según el rol,
+        # así que la barra no necesita distinguir a administrador de recepción.
         self.opciones = [
-            ("dashboard", "Inicio"),
-            ("catalogo", "Catálogo"),
-            ("pagos", "Pagos"),
+            ("dashboard", "Inicio", "Resumen de ocupación y llegadas del día."),
+            ("catalogo", "Catálogo", "Ver y administrar las habitaciones del hotel."),
+            ("pagos_reportes", "Ingresos",
+             "Cuentas y cobros de las estancias; reportes de ingresos (solo administrador)."),
         ]
-        for clave, titulo in self.opciones:
+
+        for clave, titulo, ayuda in self.opciones:
             boton = QPushButton(titulo)
             boton.setObjectName("bannerBoton")
             boton.setCheckable(True)
             boton.setCursor(Qt.PointingHandCursor)
             boton.setMinimumHeight(34)
+            boton.setToolTip(ayuda)
             boton.clicked.connect(lambda _=False, clave=clave: self._navegar(clave))
             self.botones[clave] = boton
             layout.addWidget(boton)
@@ -62,14 +73,26 @@ class BannerNavegacion(QWidget):
         layout.addStretch()
 
         # --------------------------------------------------
+        # CAMPANA DE AVISOS
+        # --------------------------------------------------
+        # Visible para ambos perfiles: a recepción también le interesa saber
+        # quién se quedó en la habitación de más.
+        self.btn_notificaciones = QPushButton("Notificaciones")
+        self.btn_notificaciones.setObjectName("campanaNotificaciones")
+        self.btn_notificaciones.setCursor(Qt.PointingHandCursor)
+        self.btn_notificaciones.setMinimumHeight(34)
+        self.btn_notificaciones.clicked.connect(self.notificaciones_solicitada.emit)
+        self.set_notificaciones(0)
+        layout.addWidget(self.btn_notificaciones)
+
+        # --------------------------------------------------
         # MENÚ DE SESIÓN
         # --------------------------------------------------
-        rol = self.usuario_actual.get("rol", "recepcionista")
         nombre = self.usuario_actual.get("nombre_completo") or self.usuario_actual.get("nombre", "")
 
         menu_usuario = QMenu(self)
 
-        accion_rol = QAction(f"Rol: {self._etiqueta_rol(rol)}", self)
+        accion_rol = QAction(f"Rol: {self._etiqueta_rol(self.es_admin)}", self)
         accion_rol.setEnabled(False)
         menu_usuario.addAction(accion_rol)
         menu_usuario.addSeparator()
@@ -78,10 +101,22 @@ class BannerNavegacion(QWidget):
         accion_cerrar.triggered.connect(self.sesion_cerrada_solicitada.emit)
         menu_usuario.addAction(accion_cerrar)
 
-        self.btn_usuario = QPushButton(f"{nombre}  ·  {self._etiqueta_rol(rol)}")
+        # La configuración del hotel vive debajo de «Cerrar sesión», como pidió
+        # la operación: no es algo de uso diario.
+        if self.es_admin:
+            menu_usuario.addSeparator()
+            accion_config = QAction("Configuración del hotel", self)
+            accion_config.triggered.connect(self.configuracion_solicitada.emit)
+            menu_usuario.addAction(accion_config)
+
+        self.btn_usuario = QPushButton(f"{nombre}  ·  {self._etiqueta_rol(self.es_admin)}")
         self.btn_usuario.setObjectName("bannerUsuario")
         self.btn_usuario.setCursor(Qt.PointingHandCursor)
         self.btn_usuario.setMinimumHeight(34)
+        self.btn_usuario.setToolTip(
+            f"Sesión iniciada como {nombre} ({self._etiqueta_rol(self.es_admin)}). "
+            "Haga clic para ver las opciones de sesión."
+        )
         self.btn_usuario.setMenu(menu_usuario)
         layout.addWidget(self.btn_usuario)
 
@@ -95,6 +130,22 @@ class BannerNavegacion(QWidget):
             boton.setChecked(nombre == clave)
         self.boton_activo = clave
 
+    def set_notificaciones(self, conteo):
+        """Actualiza la campana con el número de avisos pendientes."""
+        if conteo > 0:
+            self.btn_notificaciones.setText(f"Notificaciones ({conteo})")
+            self.btn_notificaciones.setProperty("conAvisos", True)
+            ayuda = f"{conteo} aviso(s) pendiente(s). Haga clic para verlos."
+        else:
+            self.btn_notificaciones.setText("Notificaciones")
+            self.btn_notificaciones.setProperty("conAvisos", False)
+            ayuda = "No hay avisos pendientes. Haga clic para revisarlos."
+
+        # La propiedad de hoja de estilos solo se reaplica al refrescar el estilo.
+        self.btn_notificaciones.style().unpolish(self.btn_notificaciones)
+        self.btn_notificaciones.style().polish(self.btn_notificaciones)
+        self.btn_notificaciones.setToolTip(ayuda)
+
     @staticmethod
-    def _etiqueta_rol(rol):
-        return "Administrador" if rol == "administrador" else "Recepcionista"
+    def _etiqueta_rol(es_admin):
+        return "Administrador" if es_admin else "Recepcionista"

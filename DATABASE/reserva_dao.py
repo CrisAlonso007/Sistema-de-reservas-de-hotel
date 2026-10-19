@@ -47,12 +47,18 @@ class ReservaDAO:
         empleado_id,
         habitacion_id,
         ingreso_inmediato=False,
+        factor_temporada=1.0,
+        descuento_porcentaje=0.0,
     ):
         """Registra una estancia y calcula el total en el servidor.
 
         Si `ingreso_inmediato` es verdadero, el huésped se aloja en el momento y
         la estancia nace ya «Iniciada» (la habitación queda ocupada). En caso
         contrario queda «Pendiente» hasta su fecha de entrada.
+
+        `factor_temporada` y `descuento_porcentaje` los calcula el servicio a
+        partir de los parámetros del hotel (temporada alta y descuento general)
+        y aquí solo se aplican al total: precio/noche * noches * factor - descuento.
         """
         conexion = self.db.conectar()
         if not conexion:
@@ -89,7 +95,9 @@ class ReservaDAO:
                 cursor.close()
                 return False, "La habitación ya tiene una reserva activa para esas fechas."
 
-            total = (Decimal(str(habitacion["precio"])) * int(noches)).quantize(Decimal("0.01"))
+            total = self._calcular_total(
+                habitacion["precio"], noches, factor_temporada, descuento_porcentaje
+            )
 
             # El hospedaje inmediato ocupa la habitación desde el primer momento.
             estado_inicial = "Iniciada" if ingreso_inmediato else "Pendiente"
@@ -117,6 +125,19 @@ class ReservaDAO:
             return False, "No se pudo registrar la reserva."
         finally:
             self.db.desconectar()
+
+    @staticmethod
+    def _calcular_total(precio, noches, factor_temporada=1.0, descuento_porcentaje=0.0):
+        """Total de la estancia: precio/noche * noches, aplicando temporada y descuento.
+
+        La temporada alta sube el precio (factor > 1) y el descuento general lo
+        baja (porcentaje 0-100). Se calcula aquí, en el servidor, para que el
+        importe guardado y el que ve la interfaz no puedan discrepar.
+        """
+        base = Decimal(str(precio)) * int(noches) * Decimal(str(factor_temporada))
+        descuento = Decimal(str(descuento_porcentaje)) / Decimal("100")
+        total = base * (Decimal("1") - descuento)
+        return total.quantize(Decimal("0.01"))
 
     def _buscar_choque(self, cursor, habitacion_id, fecha_entrada, fecha_salida, excluir_reserva_id=None):
         """Devuelve el estado de la reserva que pisa el tramo, o None si está libre.
@@ -243,14 +264,46 @@ class ReservaDAO:
         finally:
             self.db.desconectar()
 
-    def registrar_salida(self, reserva_id, empleado_id):
-        """Cierra la estancia: la habitación vuelve a estar disponible."""
+    def registrar_salida(self, reserva_id, empleado_id, forzar=False):
+        """Cierra la estancia y libera la habitación.
+
+        La habitación no se libera mientras la cuenta tenga saldo pendiente: el
+        pago puede registrarse en cualquier momento, pero la salida exige cuenta
+        saldada. La comprobación se hace dentro de la transacción y con la fila
+        bloqueada, de modo que un cobro concurrente tampoco deje pasar una
+        salida con deuda.
+
+        `forzar` es la salida excepcional del administrador: libera la
+        habitación aunque la cuenta quede con deuda (huésped que se retira sin
+        pagar). El servicio es quien decide si el usuario puede forzarla.
+        """
         conexion = self.db.conectar()
         if not conexion:
             return False, "No hay conexión con el servidor de base de datos."
 
         try:
-            cursor = conexion.cursor()
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT estado, total, monto_pagado FROM Reserva WHERE id = %s FOR UPDATE",
+                (reserva_id,),
+            )
+            reserva = cursor.fetchone()
+            if not reserva:
+                cursor.close()
+                return False, "La reserva no existe."
+            if reserva["estado"] != "Iniciada":
+                cursor.close()
+                return False, "No hay una estancia iniciada para esa reserva."
+
+            saldo = Decimal(str(reserva["total"])) - Decimal(str(reserva["monto_pagado"]))
+            if saldo > 0 and not forzar:
+                cursor.close()
+                return False, (
+                    "No se puede registrar la salida: la cuenta tiene un saldo "
+                    f"pendiente de ${saldo:,.2f}. Cobre la cuenta antes de liberar "
+                    "la habitación."
+                )
+
             cursor.execute(
                 """
                 UPDATE Reserva
@@ -260,10 +313,12 @@ class ReservaDAO:
                 (empleado_id, reserva_id),
             )
             conexion.commit()
-            afectadas = cursor.rowcount
             cursor.close()
-            if afectadas == 0:
-                return False, "No hay una estancia iniciada para esa reserva."
+            if saldo > 0:
+                return True, (
+                    "Salida registrada con saldo pendiente de "
+                    f"${saldo:,.2f}. La habitación quedó disponible."
+                )
             return True, "Salida registrada correctamente."
         except Error as err:
             conexion.rollback()
@@ -272,21 +327,28 @@ class ReservaDAO:
         finally:
             self.db.desconectar()
 
-    def cancelar_reserva(self, reserva_id, empleado_id):
-        """Libera las fechas de una reserva que aún no inició la estancia."""
+    def cancelar_reserva(self, reserva_id, empleado_id, permitir_iniciada=False):
+        """Libera las fechas de una reserva que aún no inició la estancia.
+
+        `permitir_iniciada` habilita la anulación administrativa de una estancia
+        en curso (huésped que se retira antes de tiempo). El recepcionista solo
+        puede cancelar reservas pendientes.
+        """
         conexion = self.db.conectar()
         if not conexion:
             return False, "No hay conexión con el servidor de base de datos."
 
+        estados = ("Pendiente", "Iniciada") if permitir_iniciada else ("Pendiente",)
+
         try:
             cursor = conexion.cursor()
             cursor.execute(
-                """
+                f"""
                 UPDATE Reserva
                 SET estado = 'Cancelada', salida_empleado_id = %s
-                WHERE id = %s AND estado = 'Pendiente'
+                WHERE id = %s AND estado IN ({", ".join(["%s"] * len(estados))})
                 """,
-                (empleado_id, reserva_id),
+                (empleado_id, reserva_id, *estados),
             )
             conexion.commit()
             afectadas = cursor.rowcount
@@ -298,6 +360,134 @@ class ReservaDAO:
             conexion.rollback()
             print(f"Error al cancelar la reserva: {err}")
             return False, "No se pudo cancelar la reserva."
+        finally:
+            self.db.desconectar()
+
+    def reactivar_reserva(self, reserva_id, empleado_id):
+        """Devuelve una reserva cancelada al estado Pendiente.
+
+        Es la corrección administrativa de una cancelación hecha por error. Se
+        comprueba, con la fila bloqueada, que la habitación siga libre para esas
+        fechas: si en el mientras tanto se reservó, no se reactiva.
+        """
+        conexion = self.db.conectar()
+        if not conexion:
+            return False, "No hay conexión con el servidor de base de datos."
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT id, habitacion_id, fecha_entrada, fecha_salida, estado "
+                "FROM Reserva WHERE id = %s FOR UPDATE",
+                (reserva_id,),
+            )
+            reserva = cursor.fetchone()
+            if not reserva:
+                cursor.close()
+                return False, "La reserva no existe."
+            if reserva["estado"] != "Cancelada":
+                cursor.close()
+                return False, "Solo se pueden reactivar reservas canceladas."
+
+            choque = self._buscar_choque(
+                cursor,
+                reserva["habitacion_id"],
+                reserva["fecha_entrada"],
+                reserva["fecha_salida"],
+                excluir_reserva_id=reserva_id,
+            )
+            if choque is not None:
+                cursor.close()
+                return False, (
+                    "No se puede reactivar: la habitación ya está comprometida "
+                    "para esas fechas."
+                )
+
+            cursor.execute(
+                "UPDATE Reserva SET estado = 'Pendiente', salida_empleado_id = NULL WHERE id = %s",
+                (reserva_id,),
+            )
+            conexion.commit()
+            cursor.close()
+            return True, "Reserva reactivada correctamente."
+        except Error as err:
+            conexion.rollback()
+            print(f"Error al reactivar la reserva: {err}")
+            return False, "No se pudo reactivar la reserva."
+        finally:
+            self.db.desconectar()
+
+    def actualizar_reserva(self, reserva_id, fecha_entrada, fecha_salida, noches,
+                           habitacion_id, empleado_id,
+                           factor_temporada=1.0, descuento_porcentaje=0.0):
+        """Modifica las fechas y la habitación de una reserva pendiente.
+
+        Es una corrección administrativa: vuelve a validar el solape ignorando
+        la propia reserva, relee el precio de la habitación elegida y deja
+        constancia del empleado que la editó. No toca el estado ni los pagos.
+        """
+        conexion = self.db.conectar()
+        if not conexion:
+            return False, "No hay conexión con el servidor de base de datos."
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT estado FROM Reserva WHERE id = %s FOR UPDATE",
+                (reserva_id,),
+            )
+            reserva = cursor.fetchone()
+            if not reserva:
+                cursor.close()
+                return False, "La reserva no existe."
+            if reserva["estado"] != "Pendiente":
+                cursor.close()
+                return False, "Solo se pueden editar reservas pendientes de ingreso."
+
+            cursor.execute(
+                "SELECT precio, mantenimiento FROM registro_habitacion WHERE id = %s FOR UPDATE",
+                (habitacion_id,),
+            )
+            habitacion = cursor.fetchone()
+            if not habitacion:
+                cursor.close()
+                return False, "La habitación seleccionada no existe."
+            if habitacion["mantenimiento"]:
+                cursor.close()
+                return False, "La habitación está en mantenimiento y no admite reservas."
+
+            choque = self._buscar_choque(
+                cursor, habitacion_id, fecha_entrada, fecha_salida,
+                excluir_reserva_id=reserva_id,
+            )
+            if choque == "Iniciada":
+                cursor.close()
+                return False, "La habitación sigue ocupada por un huésped que aún no registra su salida."
+            if choque is not None:
+                cursor.close()
+                return False, "La habitación ya tiene una reserva activa para esas fechas."
+
+            total = self._calcular_total(
+                habitacion["precio"], noches, factor_temporada, descuento_porcentaje
+            )
+
+            cursor.execute(
+                """
+                UPDATE Reserva
+                SET fecha_entrada = %s, fecha_salida = %s, noches = %s,
+                    total = %s, habitacion_id = %s, empleado_id = %s
+                WHERE id = %s AND estado = 'Pendiente'
+                """,
+                (fecha_entrada, fecha_salida, noches, total, habitacion_id,
+                 empleado_id, reserva_id),
+            )
+            conexion.commit()
+            cursor.close()
+            return True, "Reserva actualizada correctamente."
+        except Error as err:
+            conexion.rollback()
+            print(f"Error al actualizar la reserva: {err}")
+            return False, "No se pudo actualizar la reserva."
         finally:
             self.db.desconectar()
 
@@ -394,6 +584,42 @@ class ReservaDAO:
     # ------------------------------------------------------------------
     # PAGOS Y SALDOS
     # ------------------------------------------------------------------
+    def obtener_cuenta(self, reserva_id):
+        """Estado de cuenta de una reserva concreta, o None si no existe.
+
+        Es la validación previa (sin transacción) que usa el servicio para dar
+        de inmediato el motivo del rechazo. La salida vuelve a validar con la
+        fila bloqueada, por lo que un falso negativo aquí nunca colaría una
+        liberación con deuda.
+        """
+        conexion = self.db.conectar()
+        if not conexion:
+            return None
+
+        sql = """
+            SELECT r.id, r.total, r.monto_pagado,
+                (r.total - r.monto_pagado) AS saldo, r.estado,
+                CASE
+                    WHEN r.monto_pagado <= 0 THEN 'Pendiente'
+                    WHEN r.monto_pagado < r.total THEN 'Parcial'
+                    ELSE 'Pagado'
+                END AS estado_pago
+            FROM Reserva r
+            WHERE r.id = %s
+        """
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(sql, (reserva_id,))
+            cuenta = cursor.fetchone()
+            cursor.close()
+            return cuenta
+        except Error as err:
+            print(f"Error al obtener la cuenta: {err}")
+            return None
+        finally:
+            self.db.desconectar()
+
     def obtener_cuentas(self):
         """Estado de cuenta de cada reserva vigente.
 
@@ -432,6 +658,84 @@ class ReservaDAO:
             return cuentas
         except Error as err:
             print(f"Error al obtener las cuentas: {err}")
+            return []
+        finally:
+            self.db.desconectar()
+
+    def obtener_estadias_vencidas(self, fecha):
+        """Estancias ya iniciadas cuya fecha de salida ya pasó.
+
+        Son los huéspedes que siguen en la habitación pese a tener el egreso
+        cumplido: la habitación no se libera sola, así que hay que avisarlas al
+        personal. La habitación sigue marcada como ocupada hasta que se registre
+        la salida, de modo que estas filas coinciden con el catálogo.
+        """
+        conexion = self.db.conectar()
+        if not conexion:
+            return []
+
+        sql = """
+            SELECT r.id, r.cliente, r.identificacion,
+                r.noches, r.fecha_entrada, r.fecha_salida, r.total, r.monto_pagado,
+                (r.total - r.monto_pagado) AS saldo,
+                h.no_habitacion AS habitacion_numero, h.nombre AS habitacion_nombre,
+                DATEDIFF(%s, r.fecha_salida) AS dias_excedidos
+            FROM Reserva r
+            JOIN registro_habitacion h ON h.id = r.habitacion_id
+            WHERE r.estado = 'Iniciada'
+              AND r.fecha_entrada <= %s
+              AND r.fecha_salida < %s
+            ORDER BY r.fecha_salida, h.no_habitacion, r.id
+        """
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(sql, (fecha, fecha, fecha))
+            vencidas = cursor.fetchall()
+            cursor.close()
+            return vencidas
+        except Error as err:
+            print(f"Error al obtener las estadías vencidas: {err}")
+            return []
+        finally:
+            self.db.desconectar()
+
+    def obtener_cuentas_alojados(self):
+        """Cuentas con saldo pendiente de los huéspedes que siguen alojados.
+
+        Son las reservas Iniciadas cuya cuenta todavía no está saldada. Se usa
+        para la tarjeta de «cuentas por cobrar» del tablero: a diferencia de
+        `obtener_cuentas` aquí solo aparece quien ocupa la habitación ahora.
+        """
+        conexion = self.db.conectar()
+        if not conexion:
+            return []
+
+        sql = """
+            SELECT r.id, r.cliente, r.identificacion, r.noches,
+                r.fecha_entrada, r.fecha_salida, r.total, r.monto_pagado,
+                (r.total - r.monto_pagado) AS saldo,
+                h.no_habitacion AS habitacion_numero, h.nombre AS habitacion_nombre,
+                CASE
+                    WHEN r.monto_pagado <= 0 THEN 'Pendiente'
+                    WHEN r.monto_pagado < r.total THEN 'Parcial'
+                    ELSE 'Pagado'
+                END AS estado_pago
+            FROM Reserva r
+            JOIN registro_habitacion h ON h.id = r.habitacion_id
+            WHERE r.estado = 'Iniciada'
+              AND r.monto_pagado < r.total
+            ORDER BY (r.total - r.monto_pagado) DESC, h.no_habitacion, r.id
+        """
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(sql)
+            cuentas = cursor.fetchall()
+            cursor.close()
+            return cuentas
+        except Error as err:
+            print(f"Error al obtener las cuentas de los alojados: {err}")
             return []
         finally:
             self.db.desconectar()
@@ -518,6 +822,146 @@ class ReservaDAO:
             return pagos
         except Error as err:
             print(f"Error al obtener los pagos: {err}")
+            return []
+        finally:
+            self.db.desconectar()
+
+    # ------------------------------------------------------------------
+    # PARAMETROS DEL HOTEL (tabla Configuracion)
+    # ------------------------------------------------------------------
+    def obtener_configuracion(self):
+        """Devuelve todos los parámetros del hotel como un diccionario clave→valor."""
+        conexion = self.db.conectar()
+        if not conexion:
+            return {}
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute("SELECT clave, valor FROM Configuracion")
+            filas = cursor.fetchall()
+            cursor.close()
+            return {fila["clave"]: fila["valor"] for fila in filas}
+        except Error as err:
+            print(f"Error al obtener la configuración: {err}")
+            return {}
+        finally:
+            self.db.desconectar()
+
+    def guardar_configuracion(self, pares: dict):
+        """Guarda varios parámetros a la vez (upsert por clave)."""
+        if not pares:
+            return False, "No hay parámetros para guardar."
+
+        conexion = self.db.conectar()
+        if not conexion:
+            return False, "No hay conexión con el servidor de base de datos."
+
+        try:
+            cursor = conexion.cursor()
+            for clave, valor in pares.items():
+                cursor.execute(
+                    """
+                    INSERT INTO Configuracion (clave, valor)
+                    VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE valor = VALUES(valor)
+                    """,
+                    (clave, str(valor)),
+                )
+            conexion.commit()
+            cursor.close()
+            return True, "Parámetros guardados correctamente."
+        except Error as err:
+            conexion.rollback()
+            print(f"Error al guardar la configuración: {err}")
+            return False, "No se pudieron guardar los parámetros."
+        finally:
+            self.db.desconectar()
+
+    # ------------------------------------------------------------------
+    # REPORTES
+    # ------------------------------------------------------------------
+    def ingresos_por_dia(self, fecha_inicio, fecha_fin):
+        """Suma de cobros por día dentro del rango pedido."""
+        conexion = self.db.conectar()
+        if not conexion:
+            return []
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT DATE(creado_en) AS fecha, SUM(monto) AS total
+                FROM Pago
+                WHERE DATE(creado_en) BETWEEN %s AND %s
+                GROUP BY DATE(creado_en)
+                ORDER BY fecha
+                """,
+                (fecha_inicio, fecha_fin),
+            )
+            filas = cursor.fetchall()
+            cursor.close()
+            return filas
+        except Error as err:
+            print(f"Error al obtener los ingresos: {err}")
+            return []
+        finally:
+            self.db.desconectar()
+
+    def resumen_periodo(self, fecha_inicio, fecha_fin):
+        """Indicadores agregados del período para el panel de reportes."""
+        conexion = self.db.conectar()
+        if not conexion:
+            return {}
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT
+                    (SELECT COALESCE(SUM(monto), 0) FROM Pago
+                     WHERE DATE(creado_en) BETWEEN %s AND %s) AS ingresos,
+                    (SELECT COUNT(*) FROM Reserva
+                     WHERE DATE(creado_en) BETWEEN %s AND %s) AS reservas,
+                    (SELECT COUNT(*) FROM Reserva
+                     WHERE estado = 'Cancelada'
+                     AND DATE(creado_en) BETWEEN %s AND %s) AS canceladas
+                """,
+                (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin, fecha_inicio, fecha_fin),
+            )
+            resumen = cursor.fetchone() or {}
+            cursor.close()
+            return resumen
+        except Error as err:
+            print(f"Error al obtener el resumen del período: {err}")
+            return {}
+        finally:
+            self.db.desconectar()
+
+    def reservas_canceladas(self, fecha_inicio, fecha_fin):
+        """Reservas canceladas registradas en el rango, para el detalle del reporte."""
+        conexion = self.db.conectar()
+        if not conexion:
+            return []
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT r.id, r.cliente, r.fecha_entrada, r.fecha_salida,
+                    r.total, h.no_habitacion AS habitacion_numero
+                FROM Reserva r
+                JOIN registro_habitacion h ON h.id = r.habitacion_id
+                WHERE r.estado = 'Cancelada'
+                AND DATE(r.creado_en) BETWEEN %s AND %s
+                ORDER BY r.creado_en DESC, r.id DESC
+                """,
+                (fecha_inicio, fecha_fin),
+            )
+            filas = cursor.fetchall()
+            cursor.close()
+            return filas
+        except Error as err:
+            print(f"Error al obtener las reservas canceladas: {err}")
             return []
         finally:
             self.db.desconectar()

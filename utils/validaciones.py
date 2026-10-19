@@ -89,9 +89,34 @@ def validar_telefono(telefono: str) -> bool:
     return bool(re.fullmatch(r"\+?[0-9][0-9 ()-]{5,18}[0-9]", tel_limpio))
 
 
+def es_correo_valido(correo: str) -> bool:
+    """Valida un correo electrónico con formato básico (usuario@dominio.tld)."""
+    if not isinstance(correo, str):
+        return False
+    correo_limpio = correo.strip()
+    if not (5 <= len(correo_limpio) <= 255):
+        return False
+    return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", correo_limpio))
+
+
 # ----------------------------------------------------------------------
 # VALIDACIONES DE LAS ESTANCIAS
 # ----------------------------------------------------------------------
+def es_id_valido(valor) -> bool:
+    """Valida un identificador de base de datos: entero positivo.
+
+    Se usa en los puntos de entrada del backend para no mandar a la base un
+    identificador vacío, negativo o no numérico (devuelve "None" o cadenas que
+    MySQL rechazaría con un error crudo en vez de un mensaje claro).
+    """
+    if valor is None or isinstance(valor, bool):
+        return False
+    try:
+        return int(valor) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def es_noches_valida(valor: str | int) -> bool:
     """Valida que la cantidad de noches sea un entero mayor a cero."""
     if valor is None:
