@@ -87,7 +87,7 @@ class LoginPersonal(QWidget):
         btn_ingresar.clicked.connect(self._procesar_login)
         layout.addWidget(btn_ingresar)
 
-        btn_registro = QPushButton("¿No tienes cuenta? Crear cuenta")
+        btn_registro = QPushButton("Agregar empleado")
         btn_registro.setObjectName("loginEnlace")
         btn_registro.setFlat(True)
         btn_registro.setCursor(Qt.PointingHandCursor)
@@ -227,5 +227,5 @@ class DialogoRegistro(QDialog):
         self.usuario_creado = self.txt_usuario.text().strip()
         QMessageBox.information(
             self, "Cuenta creada", f"{mensaje}\n\nYa puede iniciar sesión."
-        )
+        ) 
         self.accept()
