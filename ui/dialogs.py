@@ -8,7 +8,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QDate
 from PySide6.QtGui import QColor
 from services.reserva_service import ReservaService
-from utils.stylesheets import ESTILO_PANEL, ESTILO_TABLA
+from utils.validaciones import es_monto_cobro_valido, filtrar_precio
+from ui.validacion_helpers import aplicar_validador, crear_etiqueta_error
 
 class DialogoEditarReserva(QDialog):
     """Corrige las fechas y la habitación de una reserva pendiente.
@@ -353,3 +354,100 @@ class DialogoCobro(QDialog):
         etiqueta = QLabel(texto)
         etiqueta.setStyleSheet(f"font-size: 15px; font-weight: bold; color: {color};")
         return etiqueta
+
+
+class DialogoExtenderEstadia(QDialog):
+    """Alarga la salida de un huésped que sigue alojado.
+
+    Solo pide la nueva fecha: el servicio recalcula las noches y el total con la
+    tarifa de la habitación. Si la extensión choca con otra reserva, muestra el
+    motivo y deja corregir la fecha sin cerrar el diálogo.
+    """
+
+    guardado = Signal()
+
+    def __init__(self, reserva, usuario_actual, reserva_service, parent=None):
+        super().__init__(parent)
+        self.reserva = reserva
+        self.usuario_actual = usuario_actual or {}
+        self.reserva_service = reserva_service
+
+        self.setWindowTitle("Extender estadía")
+        self.setMinimumWidth(400)
+        self.setStyleSheet(ESTILO_PANEL)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
+
+        cabecera = QLabel(
+            f"{reserva.get('cliente')} · Habitación {reserva.get('habitacion_numero')}"
+        )
+        cabecera.setObjectName("panelTitulo")
+        cabecera.setWordWrap(True)
+        layout.addWidget(cabecera)
+
+        detalle = QLabel(
+            f"Entrada: {self.reserva_service.formato_fecha(reserva.get('fecha_entrada'))}\n"
+            f"Salida actual: {self.reserva_service.formato_fecha(reserva.get('fecha_salida'))}\n"
+            f"Saldo actual: ${self.reserva_service.formato_monto(reserva.get('saldo') or 0)}"
+        )
+        detalle.setObjectName("panelSubtitulo")
+        layout.addWidget(detalle)
+
+        formulario = QFormLayout()
+        self.dt_nueva_salida = QDateEdit()
+        self.dt_nueva_salida.setCalendarPopup(True)
+        self.dt_nueva_salida.setDisplayFormat("dd/MM/yyyy")
+        minimo = self._a_date(reserva.get("fecha_salida")).addDays(1)
+        manana = QDate.currentDate().addDays(1)
+        if minimo < manana:
+            minimo = manana
+        self.dt_nueva_salida.setMinimumDate(minimo)
+        self.dt_nueva_salida.setDate(minimo)
+        formulario.addRow("Nueva fecha de salida:", self.dt_nueva_salida)
+        layout.addLayout(formulario)
+
+        aviso = QLabel(
+            "El total se recalcula con la tarifa de la habitación. No es "
+            "necesario tener la cuenta pagada para extender la estadía."
+        )
+        aviso.setObjectName("panelSubtitulo")
+        aviso.setWordWrap(True)
+        layout.addWidget(aviso)
+
+        fila = QHBoxLayout()
+        fila.addStretch()
+        btn_cancelar = QPushButton("Cancelar")
+        btn_cancelar.setObjectName("accionSecundaria")
+        btn_cancelar.setCursor(Qt.PointingHandCursor)
+        btn_cancelar.setFixedHeight(34)
+        btn_cancelar.clicked.connect(self.reject)
+        fila.addWidget(btn_cancelar)
+
+        btn_guardar = QPushButton("Guardar")
+        btn_guardar.setObjectName("accionPrimaria")
+        btn_guardar.setCursor(Qt.PointingHandCursor)
+        btn_guardar.setFixedHeight(34)
+        btn_guardar.clicked.connect(self._guardar)
+        fila.addWidget(btn_guardar)
+        layout.addLayout(fila)
+
+    def _guardar(self):
+        fecha = self.dt_nueva_salida.date().toString("yyyy-MM-dd")
+        exito, mensaje = self.reserva_service.extender_estadia(
+            self.usuario_actual, self.reserva["id"], fecha
+        )
+        if not exito:
+            QMessageBox.warning(self, "No se pudo extender", mensaje)
+            return
+        QMessageBox.information(self, "Estadía extendida", mensaje)
+        self.guardado.emit()
+        self.accept()
+
+    @staticmethod
+    def _a_date(valor):
+        """Convierte la fecha que llega de la base de datos a un `QDate`."""
+        if hasattr(valor, "year"):
+            return QDate(valor.year, valor.month, valor.day)
+        return QDate.fromString(str(valor), "yyyy-MM-dd")

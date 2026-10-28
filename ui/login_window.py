@@ -3,12 +3,12 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame,
     QDialog, QFormLayout, QMessageBox,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QRegularExpression
 from PySide6.QtGui import QRegularExpressionValidator
-from PySide6.QtCore import QRegularExpression
 from services.autenticacion_service import AutenticacionService
 from utils.stylesheets import ESTILO_LOGIN, ESTILO_PANEL
 from utils.validaciones import es_password_valido, es_usuario_valido, MAX_TELEFONO
+
 
 class LoginPersonal(QWidget):
     """Acceso del personal del hotel, con opción de crear una cuenta de recepción."""

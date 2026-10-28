@@ -187,10 +187,16 @@ class VentanaAdministracion(QWidget):
         self.spn_noches_max.setSuffix(" noche(s)")
         self.spn_noches_max.setFixedHeight(32)
 
+        self.spn_aviso_pago = QSpinBox()
+        self.spn_aviso_pago.setRange(0, 30)
+        self.spn_aviso_pago.setSuffix(" días")
+        self.spn_aviso_pago.setFixedHeight(32)
+
         campos = [
             ("Antelación máxima para reservar:", self.spn_anticipacion, 0),
             ("Duración mínima de la estadía:", self.spn_noches_min, 1),
             ("Duración máxima de la estadía:", self.spn_noches_max, 2),
+            ("Aviso previo para cobrar:", self.spn_aviso_pago, 3),
         ]
         for etiqueta, campo, fila in campos:
             grid.addWidget(QLabel(etiqueta), fila, 0)
@@ -224,17 +230,10 @@ class VentanaAdministracion(QWidget):
             "descuento_porcentaje": parametros["descuento_porcentaje"],
             "temporada_alta_inicio": parametros["temporada_alta_inicio"],
             "temporada_alta_fin": parametros["temporada_alta_fin"],
+            "dias_aviso_pago": self.spn_aviso_pago.value(),
         }
         exito, mensaje = self.reserva_service.actualizar_parametros(self.usuario_actual, datos)
         self._avisar(exito, mensaje, "Parámetros guardados")
-
-    # ------------------------------------------------------------------
-    # PESTAÑA: TARIFAS Y TEMPORADAS
-    # ------------------------------------------------------------------
-    def _alternar_temporada(self, activo):
-        self.dt_inicio.setEnabled(activo)
-        self.dt_fin.setEnabled(activo)
-        self.spn_factor.setEnabled(activo)
 
     # ------------------------------------------------------------------
     # PESTAÑA: GESTIÓN DE PERSONAL
@@ -370,6 +369,7 @@ class VentanaAdministracion(QWidget):
         self.spn_anticipacion.setValue(parametros["dias_anticipacion_max"])
         self.spn_noches_min.setValue(parametros["noches_minimas"])
         self.spn_noches_max.setValue(parametros["noches_maximas"])
+        self.spn_aviso_pago.setValue(parametros["dias_aviso_pago"])
 
     def _cargar_personal(self):
         personal = self.autenticacion_service.listar_personal(self.usuario_actual)

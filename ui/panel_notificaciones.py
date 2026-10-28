@@ -5,11 +5,12 @@ from services.reserva_service import ReservaService
 from utils.stylesheets import ESTILO_NOTIFICACIONES
 
 class PanelNotificaciones(QFrame):
-    """Popup con los avisos operativos de recepción.
+    """Popup con los avisos de cobro y de estadía de recepción.
 
-    Hoy avisa las estadías vencidas: huéspedes que siguen en la habitación
-    pese a tener el egreso cumplido. Como el sistema no libera la habitación
-    por calendario, es el único sitio donde se hace visible ese retraso.
+    Agrupa los avisos en tres momentos, como se hace en un hotel real:
+    vencidos (llegada sin pago, deuda pendiente o estadía que se pasó de la
+    fecha de salida), para hoy (llegada o salida con saldo) y próximos (cobros
+    que vencen dentro de los días de aviso configurados).
 
     Es un `Qt.Popup`: se cierra solo cuando se hace clic fuera.
     """
@@ -37,7 +38,7 @@ class PanelNotificaciones(QFrame):
         lbl_titulo.setObjectName("popupTitulo")
         layout.addWidget(lbl_titulo)
 
-        self.lbl_subtitulo = QLabel("Estadías que superaron su fecha de salida")
+        self.lbl_subtitulo = QLabel("Cobros vencidos, de hoy y próximos")
         self.lbl_subtitulo.setObjectName("popupSubtitulo")
         layout.addWidget(self.lbl_subtitulo)
 
@@ -57,8 +58,8 @@ class PanelNotificaciones(QFrame):
     # DATOS
     # ------------------------------------------------------------------
     def recargar(self):
-        """Lee las estadías vencidas y pinta un aviso por cada una."""
-        avisos = self.reserva_service.obtener_estadias_vencidas()
+        """Lee los avisos de cobro y estadía y los pinta agrupados."""
+        avisos = self.reserva_service.obtener_alertas_cobro()
         self.pintar(avisos)
 
     def pintar(self, avisos):
@@ -72,38 +73,46 @@ class PanelNotificaciones(QFrame):
                 widget.deleteLater()
 
         if not avisos:
-            vacio = QLabel("No hay estadías vencidas. Todo al día.")
+            vacio = QLabel("No hay cobros pendientes. Todo al día.")
             vacio.setObjectName("avisoVacio")
             vacio.setWordWrap(True)
             self.layout_contenido.addWidget(vacio)
         else:
+            secciones = {
+                "vencida": "Vencidas",
+                "hoy": "Para hoy",
+                "proxima": "Próximas",
+            }
+            tipo_actual = None
             for aviso in avisos:
+                if aviso["tipo"] != tipo_actual:
+                    tipo_actual = aviso["tipo"]
+                    encabezado = QLabel(secciones[tipo_actual])
+                    encabezado.setObjectName("avisoSeccion")
+                    self.layout_contenido.addWidget(encabezado)
                 self.layout_contenido.addWidget(self._crear_item(aviso))
 
         self.layout_contenido.addStretch()
 
     def _crear_item(self, aviso):
         item = QFrame()
-        item.setObjectName("avisoItem")
+        # El nombre del objeto cambia el borde izquierdo según la gravedad.
+        item.setObjectName(f"avisoItem{aviso['tipo'].capitalize()}")
         layout = QVBoxLayout(item)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(2)
 
-        dias = aviso.get("dias_excedidos") or 0
-        titulo = QLabel(
-            f"Habitación {aviso.get('habitacion_numero')} · {aviso.get('cliente')}"
-        )
+        titulo = QLabel(aviso.get("titulo", ""))
         titulo.setObjectName("avisoTitulo")
         titulo.setWordWrap(True)
         layout.addWidget(titulo)
 
-        detalle = (
-            f"Debió salir el {self.reserva_service.formato_fecha(aviso.get('fecha_salida'))} "
-            f"· lleva {dias} día(s) de exceso"
-        )
+        detalle = f"{aviso.get('categoria')}. {aviso.get('detalle')}"
         saldo = float(aviso.get("saldo") or 0)
         if saldo > 0:
-            detalle += f" · debe ${self.reserva_service.formato_monto(saldo)}"
+            detalle += (
+                f" Saldo: ${self.reserva_service.formato_monto(saldo)}."
+            )
 
         texto = QLabel(detalle)
         texto.setObjectName("avisoTexto")

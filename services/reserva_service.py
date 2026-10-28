@@ -77,6 +77,7 @@ class ReservaService:
         "temporada_alta_fin": None,
         "factor_temporada_alta": 1.0,
         "descuento_porcentaje": 0.0,
+        "dias_aviso_pago": 3,
     }
 
     def __init__(self):
@@ -136,6 +137,9 @@ class ReservaService:
         )
         parametros["temporada_alta_inicio"] = self._a_fecha_opcional(crudos.get("temporada_alta_inicio"))
         parametros["temporada_alta_fin"] = self._a_fecha_opcional(crudos.get("temporada_alta_fin"))
+        parametros["dias_aviso_pago"] = self._a_entero(
+            crudos.get("dias_aviso_pago"), self.PARAMETROS_POR_DEFECTO["dias_aviso_pago"]
+        )
 
         return parametros
 
@@ -150,6 +154,7 @@ class ReservaService:
             anticipacion = int(parametros.get("dias_anticipacion_max"))
             noches_min = int(parametros.get("noches_minimas"))
             noches_max = int(parametros.get("noches_maximas"))
+            dias_aviso = int(parametros.get("dias_aviso_pago", 3))
         except (TypeError, ValueError):
             return False, "La antelación y la duración de la estadía deben ser números enteros."
 
@@ -161,6 +166,8 @@ class ReservaService:
             return False, "El máximo de noches debe estar entre 1 y 365."
         if noches_max < noches_min:
             return False, "El máximo de noches no puede ser menor que el mínimo."
+        if not (0 <= dias_aviso <= 30):
+            return False, "Los días de aviso de cobro deben estar entre 0 y 30."
 
         try:
             factor = Decimal(str(parametros.get("factor_temporada_alta")))
@@ -196,6 +203,7 @@ class ReservaService:
             "descuento_porcentaje": str(descuento),
             "temporada_alta_inicio": inicio or "",
             "temporada_alta_fin": fin or "",
+            "dias_aviso_pago": dias_aviso,
         })
 
     def _factor_y_descuento(self, fecha_entrada):
@@ -465,6 +473,52 @@ class ReservaService:
             descuento_porcentaje=descuento,
         )
 
+    def extender_estadia(self, usuario_actual: dict, reserva_id, fecha_salida) -> tuple[bool, str]:
+        """Alarga la estadía de un huésped que sigue alojado.
+
+        La nueva salida debe ser futura y posterior a la actual. El total se
+        recalcula con la tarifa de la habitación, así que el saldo pendiente
+        sube si corresponde. No se exige tener la cuenta pagada para autorizar
+        la extensión: el sistema lo deja registrado y avisa del saldo.
+        """
+        empleado_id = self._empleado_de_sesion(usuario_actual)
+        if empleado_id is None:
+            return False, "No hay una sesión de personal válida."
+        if not es_id_valido(reserva_id):
+            return False, "La reserva indicada no es válida."
+
+        nueva_salida, error = self._parsear_fecha(fecha_salida)
+        if error:
+            return False, error
+        if nueva_salida <= datetime.today().date():
+            return False, "La nueva fecha de salida debe ser posterior a hoy."
+
+        reserva = self.dao.obtener_reserva(reserva_id)
+        if not reserva:
+            return False, "La reserva no existe."
+        if reserva["estado"] != "Iniciada":
+            return False, "Solo se puede extender una estadía que esté en curso."
+
+        entrada = self._a_date(reserva["fecha_entrada"])
+        salida_actual = self._a_date(reserva["fecha_salida"])
+        if nueva_salida <= salida_actual:
+            return False, "La nueva salida debe ser posterior a la actual."
+
+        noches = (nueva_salida - entrada).days
+        parametros = self.obtener_parametros()
+        if noches > parametros["noches_maximas"]:
+            return False, f"La estadía no puede superar {parametros['noches_maximas']} noches."
+
+        factor, descuento = self._factor_y_descuento(entrada)
+
+        return self.dao.extender_estadia(
+            reserva_id=reserva_id,
+            nueva_salida=nueva_salida,
+            empleado_id=empleado_id,
+            factor_temporada=factor,
+            descuento_porcentaje=descuento,
+        )
+
     def obtener_reservas_pendientes(self):
         """Todas las reservas en estado Pendiente, sin importar su fecha.
 
@@ -522,6 +576,100 @@ class ReservaService:
         ocupa la habitación ahora mismo y todavía debe dinero.
         """
         return self.dao.obtener_cuentas_alojados()
+
+    def obtener_alertas_cobro(self):
+        """Avisos de cobro y de estadía, ordenados en tres momentos.
+
+        Cada aviso llega como un diccionario con ``tipo`` (``vencida``, ``hoy``
+        o ``proxima``), una categoría para mostrar y el saldo pendiente.
+
+        La fecha límite se toma así, igual que en un hotel real:
+          - Antes de la llegada: se avisa cuando faltan ``dias_aviso_pago``.
+          - El día de la llegada o de la salida: aviso del día.
+          - Después: llegada sin pago, deuda tras la salida o estadía vencida.
+
+        La estadía vencida se informa aunque la cuenta esté pagada: es un
+        problema operativo (la habitación sigue ocupada), no solo de dinero.
+        """
+        hoy = datetime.today().date()
+        dias_aviso = self.obtener_parametros()["dias_aviso_pago"]
+        alertas = []
+
+        for cuenta in self.dao.obtener_cuentas():
+            estado = cuenta.get("estado")
+            saldo = Decimal(str(cuenta.get("saldo") or 0))
+            entrada = self._a_date(cuenta.get("fecha_entrada"))
+            salida = self._a_date(cuenta.get("fecha_salida"))
+
+            # 1) El huésped sigue alojado y su fecha de salida ya pasó.
+            if estado == "Iniciada" and salida < hoy:
+                dias = (hoy - salida).days
+                alertas.append(self._alerta(
+                    "vencida", "Estadía vencida", cuenta, salida, saldo,
+                    f"Debió salir el {self.formato_fecha(salida)}; "
+                    f"lleva {dias} día(s) de exceso.",
+                ))
+                continue
+
+            # 2) Cuentas sin saldo: no hay nada que cobrar.
+            if saldo <= 0:
+                continue
+
+            if estado in ("Pendiente", "Confirmada"):
+                dias = (entrada - hoy).days
+                if dias < 0:
+                    alertas.append(self._alerta(
+                        "vencida", "Llegada sin pago", cuenta, entrada, saldo,
+                        f"La entrada fue el {self.formato_fecha(entrada)} "
+                        "y la reserva sigue sin pagar.",
+                    ))
+                elif dias == 0:
+                    alertas.append(self._alerta(
+                        "hoy", "Cobro en la llegada", cuenta, entrada, saldo,
+                        "Llega hoy y la cuenta tiene saldo pendiente.",
+                    ))
+                elif dias <= dias_aviso:
+                    alertas.append(self._alerta(
+                        "proxima", "Cobro próximo", cuenta, entrada, saldo,
+                        f"Llega en {dias} día(s) y la cuenta tiene saldo pendiente.",
+                    ))
+            elif estado == "Iniciada":
+                dias = (salida - hoy).days
+                if dias == 0:
+                    alertas.append(self._alerta(
+                        "hoy", "Cobro en la salida", cuenta, salida, saldo,
+                        "Sale hoy y la cuenta tiene saldo pendiente.",
+                    ))
+                elif dias <= dias_aviso:
+                    alertas.append(self._alerta(
+                        "proxima", "Cuenta por cobrar", cuenta, salida, saldo,
+                        f"Sale en {dias} día(s) y la cuenta tiene saldo pendiente.",
+                    ))
+            elif estado == "Finalizada":
+                alertas.append(self._alerta(
+                    "vencida", "Deuda pendiente", cuenta, salida, saldo,
+                    f"La estadía terminó el {self.formato_fecha(salida)} "
+                    "y quedó saldo pendiente.",
+                ))
+
+        orden = {"vencida": 0, "hoy": 1, "proxima": 2}
+        alertas.sort(key=lambda aviso: (orden[aviso["tipo"]], aviso["fecha"]))
+        return alertas
+
+    @staticmethod
+    def _alerta(tipo, categoria, cuenta, fecha, saldo, detalle):
+        """Arma el diccionario que consume la campana de notificaciones."""
+        return {
+            "tipo": tipo,
+            "categoria": categoria,
+            "titulo": (
+                f"Habitación {cuenta.get('habitacion_numero')} · "
+                f"{cuenta.get('cliente')}"
+            ),
+            "detalle": detalle,
+            "fecha": fecha,
+            "saldo": saldo,
+        }
 
     def serie_ingresos(self, dias=7):
         """Serie continua de ingresos diarios de los últimos N días.

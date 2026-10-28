@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from services.reserva_service import ReservaService
+from ui.dialogs import DialogoExtenderEstadia
 from utils.seguridad import es_administrador
 from utils.stylesheets import COLORES_ESTATUS, ESTILO_TABLA
 
@@ -336,6 +337,12 @@ class TablaReservas(QWidget):
                 ))
         elif estado == "Iniciada":
             acciones.append((
+                "Extender estadía",
+                self._extender_estadia,
+                "Alargar la fecha de salida del huésped que sigue alojado.",
+                True,
+            ))
+            acciones.append((
                 "Registrar salida",
                 self._registrar_salida,
                 "Registrar la salida del huésped y liberar la habitación. "
@@ -400,6 +407,17 @@ class TablaReservas(QWidget):
         ):
             return
         self._ejecutar(self.reserva_service.registrar_salida, reserva)
+
+    def _extender_estadia(self, reserva):
+        """Abre el diálogo que alarga la salida y, si guarda, refresca la mesa."""
+        dialogo = DialogoExtenderEstadia(
+            reserva=reserva,
+            usuario_actual=self.usuario_actual,
+            reserva_service=self.reserva_service,
+            parent=self,
+        )
+        if dialogo.exec():
+            self.ocupacion_cambiada.emit()
 
     def _cancelar_reserva(self, reserva):
         if not self._confirmar(

@@ -116,7 +116,8 @@ INSERT INTO Configuracion (clave, valor, descripcion) VALUES
     ('temporada_alta_inicio', '', 'Primer día de temporada alta (YYYY-MM-DD; vacío = sin temporada)'),
     ('temporada_alta_fin', '', 'Último día de temporada alta (YYYY-MM-DD)'),
     ('factor_temporada_alta', '1.20', 'Recargo aplicado al precio por noche en temporada alta'),
-    ('descuento_porcentaje', '0', 'Descuento general aplicado al total de la estancia (%)')
+    ('descuento_porcentaje', '0', 'Descuento general aplicado al total de la estancia (%)'),
+    ('dias_aviso_pago', '3', 'Días de antelación con que se avisa un cobro pendiente')
 ON DUPLICATE KEY UPDATE clave = clave;
 
 INSERT INTO Usuario

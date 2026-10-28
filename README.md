@@ -58,14 +58,14 @@ ui/
   panel_pagos_reportes.py   Módulo único «Pagos y reportes» con pestañas por rol
   panel_pagos.py            Pestaña «Cobros»: saldos y estado de cuenta
   panel_reportes.py         Pestaña «Reportes» (solo administrador)
-  panel_notificaciones.py   Popup de avisos (estadías vencidas)
+  panel_notificaciones.py   Popup de avisos de cobro y estadías vencidas
   tabla_reservas.py         Mesa reutilizable de reservas con acciones
   admin_window.py           Alta y edición de habitaciones (solo admin)
   ventana_administracion.py «Configuración del hotel»: parámetros y personal
   detalle_habitacion.py     Ficha de habitación y acceso al alta de huésped
   registro_huesped.py       Formulario único de registro de huésped
   components.py             Tarjetas reutilizables: catálogo y KPIs
-  dialogs.py                Diálogos: edición de reserva (admin) y cobro de estancia
+  dialogs.py                Diálogos: edición de reserva, cobro y extensión de estadía
   historial_huespedes.py    Historial de estancias de un huésped
 utils/
   seguridad.py              Hash de contraseñas y autorización por sesión y rol
@@ -215,15 +215,23 @@ describe la estancia.
 
 ## Notificaciones
 
-La campana de la cabecera (`ui/panel_notificaciones.py`) avisa de las **estadías
-vencidas**: reservas `Iniciada` cuya `fecha_salida` ya pasó. Muestra el huésped,
-la habitación y los días excedidos. El número entre paréntesis en el botón refleja
-cuántos avisos hay pendientes; al registrar la salida de un huésped, el aviso
-desaparece.
+La campana de la cabecera (`ui/panel_notificaciones.py`) agrupa los avisos de
+cobro y de estadía en tres momentos, como se hace en un hotel real:
+
+* **Vencidas**: llegada sin pago, deuda que quedó tras la salida o estadía que se
+  pasó de la fecha de salida. La estadía vencida se avisa aunque la cuenta esté
+  pagada, porque el problema es operativo: la habitación sigue ocupada.
+* **Para hoy**: la llegada o la salida es hoy y la cuenta tiene saldo.
+* **Próximas**: la llegada o la salida cae dentro de los `dias_aviso_pago`
+  configurados y la cuenta tiene saldo.
+
+El número del botón refleja cuántos avisos hay pendientes. La fecha límite de
+pago se toma en dos pasos: se avisa antes de la llegada y se exige liquidar al
+registrar la salida (el recepcionista) o al forzarla (el administrador).
 
 ## Configuración del hotel (solo administradores)
 
-Se abre desde el menú de sesión y agrupa tres pestañas en
+Se abre desde el menú de sesión y agrupa dos pestañas en
 `ui/ventana_administracion.py`.
 
 ### Parámetros
@@ -238,6 +246,7 @@ Guarda en la tabla `Configuracion` (clave-valor) las reglas que aplica
 | `temporada_alta_inicio` / `temporada_alta_fin` | Ventana de temporada alta |
 | `factor_temporada_alta` | Multiplicador de precio en temporada alta |
 | `descuento_porcentaje` | Descuento aplicado al total |
+| `dias_aviso_pago` | Días de antelación con que se avisa un cobro pendiente |
 
 El total lo sigue calculando el servidor: aplica el factor de temporada si la
 fecha de entrada cae dentro de la ventana y luego el descuento, redondeando a
@@ -256,6 +265,21 @@ El enlace **Crear cuenta** de la pantalla de acceso (en `ui/login_window.py`,
 `recepcionista` a partir de los mismos datos validados que el alta de personal
 (`AutenticacionService.registrar_cuenta`). El rol no es elegible para que nadie
 pueda otorgarse privilegios de administrador.
+
+### Extender una estadía
+
+Cuando un huésped se pasa de la fecha de salida, la mesa de alojados ofrece
+**Extender estadía** (`DialogoExtenderEstadia` en `ui/dialogs.py`). El
+recepcionista elige la nueva salida y el servidor:
+
+* revalida que la habitación no tenga otra reserva en el tramo que se agrega,
+* recalcula las noches y el total con la tarifa vigente,
+* deja el saldo pendiente actualizado sin exigir el pago de la extensión.
+
+Si la habitación ya está comprometida, el sistema rechaza la extensión y explica
+el motivo; la salida normal sigue exigiendo la cuenta pagada. Así se cubren las
+dos respuestas reales del hotel: **extender** (cobrando las noches extra) o
+**registrar la salida**.
 
 ### Acciones de reserva reservadas al administrador
 

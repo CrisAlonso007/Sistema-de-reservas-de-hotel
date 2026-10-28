@@ -320,7 +320,7 @@ class VentanaPrincipal(QMainWindow):
 
     def _actualizar_conteo_notificaciones(self):
         try:
-            avisos = self.reserva_service.obtener_estadias_vencidas()
+            avisos = self.reserva_service.obtener_alertas_cobro()
             self.banner.set_notificaciones(len(avisos))
         except Exception:
             self.banner.set_notificaciones(0)

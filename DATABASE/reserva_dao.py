@@ -491,6 +491,123 @@ class ReservaDAO:
         finally:
             self.db.desconectar()
 
+    def obtener_reserva(self, reserva_id):
+        """Datos mínimos de una reserva para validar una extensión de estadía.
+
+        Es la comprobación previa del servicio: informa el estado y las fechas.
+        La extensión vuelve a validar con la fila bloqueada, así que un cambio
+        entre ambas lecturas no puede colarse.
+        """
+        conexion = self.db.conectar()
+        if not conexion:
+            return None
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT id, estado, fecha_entrada, fecha_salida, habitacion_id,
+                    total, monto_pagado
+                FROM Reserva
+                WHERE id = %s
+                """,
+                (reserva_id,),
+            )
+            reserva = cursor.fetchone()
+            cursor.close()
+            return reserva
+        except Error as err:
+            print(f"Error al obtener la reserva: {err}")
+            return None
+        finally:
+            self.db.desconectar()
+
+    def extender_estadia(self, reserva_id, nueva_salida, empleado_id,
+                         factor_temporada=1.0, descuento_porcentaje=0.0):
+        """Alarga la salida de una estancia en curso y recalcula el total.
+
+        Solo aplica a reservas ``Iniciada``. Revalida el solape en el tramo que
+        se agrega (desde la salida actual hasta la nueva) para no pisar una
+        reserva futura de la misma habitación. No toca los pagos: si el total
+        crece, el saldo pendiente crece con él.
+        """
+        conexion = self.db.conectar()
+        if not conexion:
+            return False, "No hay conexión con el servidor de base de datos."
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT estado, fecha_entrada, fecha_salida, habitacion_id
+                FROM Reserva
+                WHERE id = %s
+                FOR UPDATE
+                """,
+                (reserva_id,),
+            )
+            reserva = cursor.fetchone()
+            if not reserva:
+                cursor.close()
+                return False, "La reserva no existe."
+            if reserva["estado"] != "Iniciada":
+                cursor.close()
+                return False, "Solo se puede extender una estadía que esté en curso."
+
+            salida_actual = reserva["fecha_salida"]
+            if nueva_salida <= salida_actual:
+                cursor.close()
+                return False, "La nueva salida debe ser posterior a la actual."
+
+            cursor.execute(
+                "SELECT precio, mantenimiento FROM registro_habitacion WHERE id = %s FOR UPDATE",
+                (reserva["habitacion_id"],),
+            )
+            habitacion = cursor.fetchone()
+            if not habitacion:
+                cursor.close()
+                return False, "La habitación de la reserva no existe."
+            if habitacion["mantenimiento"]:
+                cursor.close()
+                return False, "La habitación está en mantenimiento."
+
+            choque = self._buscar_choque(
+                cursor, reserva["habitacion_id"], salida_actual, nueva_salida,
+                excluir_reserva_id=reserva_id,
+            )
+            if choque == "Iniciada":
+                cursor.close()
+                return False, "La habitación sigue ocupada por otro huésped."
+            if choque is not None:
+                cursor.close()
+                return False, "La habitación ya tiene una reserva para las fechas de la extensión."
+
+            noches = (nueva_salida - reserva["fecha_entrada"]).days
+            total = self._calcular_total(
+                habitacion["precio"], noches, factor_temporada, descuento_porcentaje
+            )
+
+            cursor.execute(
+                """
+                UPDATE Reserva
+                SET fecha_salida = %s, noches = %s, total = %s, empleado_id = %s
+                WHERE id = %s AND estado = 'Iniciada'
+                """,
+                (nueva_salida, noches, total, empleado_id, reserva_id),
+            )
+            conexion.commit()
+            cursor.close()
+            return True, (
+                f"Estadía extendida hasta el {nueva_salida.strftime('%d/%m/%Y')}. "
+                f"Nuevo total: ${total:,.2f}."
+            )
+        except Error as err:
+            conexion.rollback()
+            print(f"Error al extender la estadía: {err}")
+            return False, "No se pudo extender la estadía."
+        finally:
+            self.db.desconectar()
+
     def obtener_pendientes(self):
         """Todas las reservas pendientes de ingreso, sea cual sea su fecha.
 

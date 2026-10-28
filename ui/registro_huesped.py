@@ -10,7 +10,12 @@ from utils.stylesheets import (ESTILO_CAMPO_INVALIDO, ESTILO_CAMPO_VALIDO, ESTIL
 )
 from utils.validaciones import (es_identificacion_valida, es_texto_valido,
                                 validar_nombre_completo, validar_telefono,
+                                validar_nombre_completo_inmediato,
+                                es_identificacion_valida_inmediato,
+                                validar_telefono_inmediato,
+                                filtrar_solo_letras, filtrar_identificacion, filtrar_telefono,
                                 )
+from ui.validacion_helpers import aplicar_validador, crear_etiqueta_error
 
 
 class RegistroHuespedDialog(QDialog):
@@ -153,16 +158,30 @@ class RegistroHuespedDialog(QDialog):
         )
         self.txt_identificacion = self._crear_campo(
             "Documento de identidad *", 30,
-            "Cédula o pasaporte: entre 5 y 20 caracteres (letras, números y guiones).",
+            "Cédula o pasaporte: entre 5 y 20 caracteres (letras, números y guines).",
         )
         self.txt_contacto = self._crear_campo(
             "Teléfono *", 30,
             "Teléfono de contacto del huésped (con o sin indicativo).",
         )
 
+        self.lbl_error_cliente = crear_etiqueta_error()
+        self.lbl_error_identificacion = crear_etiqueta_error()
+        self.lbl_error_contacto = crear_etiqueta_error()
+
         layout.addRow(self._etiqueta("Huésped:"), self.txt_cliente)
+        layout.addRow("", self.lbl_error_cliente)
         layout.addRow(self._etiqueta("Identificación:"), self.txt_identificacion)
+        layout.addRow("", self.lbl_error_identificacion)
         layout.addRow(self._etiqueta("Teléfono:"), self.txt_contacto)
+        layout.addRow("", self.lbl_error_contacto)
+
+        aplicar_validador(self.txt_cliente, self.lbl_error_cliente,
+                          validar_nombre_completo_inmediato, filtrar_solo_letras)
+        aplicar_validador(self.txt_identificacion, self.lbl_error_identificacion,
+                          es_identificacion_valida_inmediato, filtrar_identificacion)
+        aplicar_validador(self.txt_contacto, self.lbl_error_contacto,
+                          validar_telefono_inmediato, filtrar_telefono)
 
         nota = QLabel("Los campos con * son obligatorios.")
         nota.setStyleSheet("font-size: 11px; color: #7f8c8d;")

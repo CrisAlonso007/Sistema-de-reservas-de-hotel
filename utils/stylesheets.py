@@ -347,13 +347,28 @@ ESTILO_NOTIFICACIONES = """
         color: #6b7c8f;
         font-size: 11px;
     }
-    QFrame#avisoItem {
+    QFrame#avisoItemVencida, QFrame#avisoItemHoy, QFrame#avisoItemProxima {
         background-color: #ffffff;
         border: 1px solid #dfe4ea;
         border-radius: 8px;
     }
+    QFrame#avisoItemVencida {
+        border-left: 4px solid #c0392b;
+    }
+    QFrame#avisoItemHoy {
+        border-left: 4px solid #d68910;
+    }
+    QFrame#avisoItemProxima {
+        border-left: 4px solid #2e86c1;
+    }
+    QLabel#avisoSeccion {
+        color: #6b7c8f;
+        font-size: 11px;
+        font-weight: bold;
+        padding-top: 4px;
+    }
     QLabel#avisoTitulo {
-        color: #c0392b;
+        color: #1f2d3d;
         font-size: 12px;
         font-weight: bold;
     }
