@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from DATABASE.reserva_dao import ReservaDAO
+from mysql.connector import Error
 from utils.seguridad import (
     MENSAJE_SOLO_ADMIN,
     es_administrador,
@@ -535,7 +536,7 @@ class ReservaService:
         """
         return self.dao.obtener_en_casa(datetime.today().date())
 
-    def obtener_reservas(self):
+    def obtener_reservas(self, estricto=False):
         """Listado completo: toda reserva, sea de la fecha que sea y esté en el
         estado que esté. Sin esto, una reserva futura no aparecía en ninguna
         parte del sistema.
@@ -544,7 +545,7 @@ class ReservaService:
         luego iniciadas, después canceladas y al final finalizadas,
         y dentro de cada grupo la fecha de entrada más antigua primero.
         """
-        return self.dao.obtener_todas()
+        return self.dao.obtener_todas(estricto=estricto)
 
     # ------------------------------------------------------------------
     # PAGOS
@@ -766,6 +767,13 @@ class ReservaService:
         resumen = self.dao.resumen_periodo(inicio, fin)
         por_dia = self.dao.ingresos_por_dia(inicio, fin)
         canceladas = self.dao.reservas_canceladas(inicio, fin)
+        try:
+            por_metodo = self._completar_resumen_metodos(
+                self.dao.ingresos_por_metodo(inicio, fin)
+            )
+        except (ConnectionError, Error) as err:
+            print(f"Error al consultar ingresos por método: {err}")
+            return False, "No se pudieron consultar los ingresos por método de pago."
 
         datos = {
             "fecha_inicio": inicio,
@@ -774,9 +782,85 @@ class ReservaService:
             "reservas": int(resumen.get("reservas", 0) or 0),
             "canceladas_total": int(resumen.get("canceladas", 0) or 0),
             "por_dia": por_dia,
+            "por_metodo": por_metodo,
             "canceladas": canceladas,
         }
         return True, datos
+
+    def obtener_reporte_pagos(
+        self, usuario_actual: dict, fecha_inicio, fecha_fin
+    ) -> tuple[bool, dict | str]:
+        """Obtiene el detalle de pagos y sus totales para exportar."""
+        if not sesion_valida(usuario_actual):
+            return False, "Debe iniciar sesión para generar reportes."
+        if not es_administrador(usuario_actual):
+            return False, MENSAJE_SOLO_ADMIN
+
+        inicio, error_inicio = self._parsear_fecha(fecha_inicio)
+        if error_inicio:
+            return False, error_inicio
+        fin, error_fin = self._parsear_fecha(fecha_fin)
+        if error_fin:
+            return False, error_fin
+        if fin < inicio:
+            return False, "La fecha final no puede ser anterior a la inicial."
+
+        try:
+            pagos = self.dao.pagos_en_periodo(inicio, fin)
+        except (ConnectionError, Error) as err:
+            print(f"Error al preparar el reporte de pagos: {err}")
+            return False, "No se pudieron consultar los pagos. Revise la conexión con MySQL."
+
+        totales_por_dia = {}
+        totales_por_metodo = {}
+        total = Decimal("0.00")
+        for pago in pagos:
+            monto = Decimal(str(pago["monto"] or 0))
+            fecha = pago["creado_en"]
+            fecha = fecha.date() if isinstance(fecha, datetime) else fecha
+            resumen = totales_por_dia.setdefault(
+                fecha, {"fecha": fecha, "cantidad": 0, "total": Decimal("0.00")}
+            )
+            resumen["cantidad"] += 1
+            resumen["total"] += monto
+            metodo = pago["metodo_pago"]
+            resumen_metodo = totales_por_metodo.setdefault(
+                metodo,
+                {"metodo_pago": metodo, "cantidad": 0, "total": Decimal("0.00")},
+            )
+            resumen_metodo["cantidad"] += 1
+            resumen_metodo["total"] += monto
+            total += monto
+
+        return True, {
+            "fecha_inicio": inicio,
+            "fecha_fin": fin,
+            "pagos": pagos,
+            "por_dia": sorted(totales_por_dia.values(), key=lambda fila: fila["fecha"]),
+            "por_metodo": self._completar_resumen_metodos(
+                list(totales_por_metodo.values())
+            ),
+            "cantidad_pagos": len(pagos),
+            "total": total,
+        }
+
+    def _completar_resumen_metodos(self, filas):
+        """Incluye todos los métodos configurados, incluso si suman cero."""
+        resumen = {
+            fila["metodo_pago"]: {
+                "metodo_pago": fila["metodo_pago"],
+                "cantidad": int(fila["cantidad"] or 0),
+                "total": Decimal(str(fila["total"] or 0)),
+            }
+            for fila in filas
+        }
+        return [
+            resumen.get(
+                metodo,
+                {"metodo_pago": metodo, "cantidad": 0, "total": Decimal("0.00")},
+            )
+            for metodo in self.METODOS_PAGO
+        ]
 
     @staticmethod
     def _parsear_fecha(fecha):

@@ -2,11 +2,14 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
     QDateEdit, QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
-    QAbstractItemView,
+    QAbstractItemView, QFileDialog,
 )
 from PySide6.QtCore import Qt, QDate
+from pathlib import Path
 from services.reserva_service import ReservaService
 from services.habitacion_service import HabitacionService
+from services.exportador_excel import exportar_reporte_pagos_excel
+from services.generador_pdf import generar_reporte_pagos_pdf
 from ui.components import TarjetaKpi
 from utils.stylesheets import COLORES_ESTATUS, ESTILO_PANEL, ESTILO_TABLA
 
@@ -30,6 +33,7 @@ class PanelReportes(QWidget):
 
         layout.addWidget(self._crear_encabezado())
         layout.addLayout(self._crear_fila_kpis())
+        layout.addLayout(self._crear_barra_exportacion())
         layout.addLayout(self._crear_detalles(), stretch=1)
 
     # ------------------------------------------------------------------
@@ -91,10 +95,32 @@ class PanelReportes(QWidget):
             layout.addWidget(kpi)
         return layout
 
+    def _crear_barra_exportacion(self):
+        layout = QHBoxLayout()
+        layout.addWidget(QLabel("Exportar pagos del período:"))
+        layout.addStretch()
+
+        self.btn_exportar_excel = QPushButton("Exportar Excel")
+        self.btn_exportar_excel.setObjectName("accionSecundaria")
+        self.btn_exportar_excel.setCursor(Qt.PointingHandCursor)
+        self.btn_exportar_excel.clicked.connect(self._exportar_excel)
+        layout.addWidget(self.btn_exportar_excel)
+
+        self.btn_exportar_pdf = QPushButton("Exportar PDF")
+        self.btn_exportar_pdf.setObjectName("accionSecundaria")
+        self.btn_exportar_pdf.setCursor(Qt.PointingHandCursor)
+        self.btn_exportar_pdf.clicked.connect(self._exportar_pdf)
+        layout.addWidget(self.btn_exportar_pdf)
+        return layout
+
     def _crear_detalles(self):
         layout = QHBoxLayout()
         layout.setSpacing(12)
-        layout.addWidget(self._crear_tabla_ingresos(), stretch=1)
+        ingresos = QVBoxLayout()
+        ingresos.setSpacing(12)
+        ingresos.addWidget(self._crear_tabla_ingresos(), stretch=1)
+        ingresos.addWidget(self._crear_tabla_metodos(), stretch=1)
+        layout.addLayout(ingresos, stretch=1)
         layout.addWidget(self._crear_tabla_canceladas(), stretch=1)
         return layout
 
@@ -108,6 +134,18 @@ class PanelReportes(QWidget):
         contenedor.addWidget(self.tabla_ingresos)
         return grupo
 
+    def _crear_tabla_metodos(self):
+        grupo = QGroupBox("Ingresos por método de pago")
+        grupo.setObjectName("seccion")
+        contenedor = QVBoxLayout(grupo)
+        contenedor.setContentsMargins(14, 18, 14, 14)
+
+        self.tabla_metodos = self._crear_tabla(
+            ["Método de pago", "Cantidad", "Ingresos"], altura_minima=150
+        )
+        contenedor.addWidget(self.tabla_metodos)
+        return grupo
+
     def _crear_tabla_canceladas(self):
         grupo = QGroupBox("Reservas canceladas")
         grupo.setObjectName("seccion")
@@ -118,7 +156,7 @@ class PanelReportes(QWidget):
         contenedor.addWidget(self.tabla_canceladas)
         return grupo
 
-    def _crear_tabla(self, encabezados):
+    def _crear_tabla(self, encabezados, altura_minima=260):
         tabla = QTableWidget(0, len(encabezados))
         tabla.setHorizontalHeaderLabels(encabezados)
         tabla.setStyleSheet(ESTILO_TABLA)
@@ -126,7 +164,7 @@ class PanelReportes(QWidget):
         tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        tabla.setMinimumHeight(260)
+        tabla.setMinimumHeight(altura_minima)
         return tabla
 
     # ------------------------------------------------------------------
@@ -152,6 +190,7 @@ class PanelReportes(QWidget):
         self.kpi_canceladas.set_valor(resultado["canceladas_total"])
 
         self._llenar_ingresos(resultado["por_dia"])
+        self._llenar_metodos(resultado["por_metodo"])
         self._llenar_canceladas(resultado["canceladas"])
 
     def _llenar_ingresos(self, filas):
@@ -167,6 +206,19 @@ class PanelReportes(QWidget):
                 QTableWidgetItem(f"${self.reserva_service.formato_monto(registro['total'])}"),
             )
 
+    def _llenar_metodos(self, filas):
+        self.tabla_metodos.setRowCount(0)
+        for registro in filas:
+            fila = self.tabla_metodos.rowCount()
+            self.tabla_metodos.insertRow(fila)
+            valores = [
+                registro["metodo_pago"],
+                str(registro["cantidad"]),
+                f"${self.reserva_service.formato_monto(registro['total'])}",
+            ]
+            for columna, valor in enumerate(valores):
+                self.tabla_metodos.setItem(fila, columna, QTableWidgetItem(valor))
+
     def _llenar_canceladas(self, filas):
         self.tabla_canceladas.setRowCount(0)
         for registro in filas:
@@ -180,3 +232,56 @@ class PanelReportes(QWidget):
             ]
             for columna, valor in enumerate(valores):
                 self.tabla_canceladas.setItem(fila, columna, QTableWidgetItem(str(valor)))
+
+    def _datos_reporte_pagos(self):
+        inicio = self.dt_inicio.date().toString("yyyy-MM-dd")
+        fin = self.dt_fin.date().toString("yyyy-MM-dd")
+        exito, resultado = self.reserva_service.obtener_reporte_pagos(
+            self.usuario_actual, inicio, fin
+        )
+        if not exito:
+            QMessageBox.warning(self, "No se pudo preparar el reporte", resultado)
+            return None
+        return resultado
+
+    def _exportar_excel(self):
+        datos = self._datos_reporte_pagos()
+        if datos is None:
+            return
+
+        nombre = f"reporte_pagos_{datos['fecha_inicio']}_{datos['fecha_fin']}.xlsx"
+        ruta, _ = QFileDialog.getSaveFileName(
+            self, "Guardar reporte de pagos en Excel", nombre, "Libro de Excel (*.xlsx)"
+        )
+        if not ruta:
+            return
+        if Path(ruta).suffix.lower() != ".xlsx":
+            ruta = f"{ruta}.xlsx"
+
+        try:
+            exportar_reporte_pagos_excel(ruta, datos)
+        except (OSError, ValueError) as err:
+            QMessageBox.critical(self, "Error al exportar Excel", str(err))
+            return
+        QMessageBox.information(self, "Reporte exportado", f"Archivo Excel guardado en:\n{ruta}")
+
+    def _exportar_pdf(self):
+        datos = self._datos_reporte_pagos()
+        if datos is None:
+            return
+
+        nombre = f"reporte_pagos_{datos['fecha_inicio']}_{datos['fecha_fin']}.pdf"
+        ruta, _ = QFileDialog.getSaveFileName(
+            self, "Guardar reporte de pagos en PDF", nombre, "Documento PDF (*.pdf)"
+        )
+        if not ruta:
+            return
+        if Path(ruta).suffix.lower() != ".pdf":
+            ruta = f"{ruta}.pdf"
+
+        try:
+            generar_reporte_pagos_pdf(ruta, datos)
+        except (OSError, ValueError) as err:
+            QMessageBox.critical(self, "Error al exportar PDF", str(err))
+            return
+        QMessageBox.information(self, "Reporte exportado", f"Archivo PDF guardado en:\n{ruta}")

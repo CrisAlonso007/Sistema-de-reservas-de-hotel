@@ -33,7 +33,12 @@ El sistema funciona como una terminal de recepción, no como un portal web:
 * Lenguaje: Python 3.10+
 * Interfaz gráfica: PySide6 (Qt6 para Python)
 * Base de datos: MySQL 8.0 (InnoDB)
-* Conector: mysql-connector-python
+* Conectores: mysql-connector-python y PyMySQL (SQLAlchemy)
+* ORM: SQLAlchemy 2.x con modelos y relaciones para usuarios, habitaciones,
+  reservas, pagos y configuración
+* Procesamiento en segundo plano: QThread para cargar el historial sin bloquear
+  la interfaz
+* Exportación de reportes: Excel con openpyxl y PDF con ReportLab
 
 **Patrón por capas (UI → Service → DAO):**
 
@@ -41,6 +46,8 @@ El sistema funciona como una terminal de recepción, no como un portal web:
 main.py                  Orquestador de sesión y ciclo de vida de ventanas
 DATABASE/
   conexion.py            Configuración y conexión única reutilizable
+  conexion_orm.py        Motor SQLAlchemy y fábrica de sesiones
+  models.py              Modelos ORM y relaciones del esquema existente
   usuario_dao.py         Personal del hotel (autenticación y gestión de cuentas)
   habitacion_dao.py      Catálogo y ocupación calculada
   reserva_dao.py         Estancias, ingresos, salidas, cancelación y reportes
@@ -49,6 +56,9 @@ services/
   autenticacion_service.py  Gestión de cuentas del personal
   habitacion_service.py     Catálogo, ocupación y tarifas por tipo
   reserva_service.py        Reglas de estancia, cobros y reportes
+  hilo_historial.py          Consulta del historial mediante QThread y señales
+  exportador_excel.py        Exportación de pagos y resumen a Excel
+  generador_pdf.py           Generación del reporte de pagos en PDF
 ui/
   login_window.py           Acceso del personal y alta de cuenta de recepción
   main_window.py            Shell: banner + pila de paneles
@@ -76,7 +86,7 @@ recursos/                   Imagen por defecto de las habitaciones
 
 ## Puesta en marcha
 
-1. Instalar dependencias: `pip install PySide6 mysql-connector-python`
+1. Instalar dependencias: `pip install -r requirements.txt`
 2. Crear la base de datos ejecutando `DATABASE/BD_Registro.sql` en MySQL 8.0+.
 3. Arrancar con `python main.py`.
 
@@ -96,6 +106,25 @@ Los parámetros se leen de variables de entorno, con los valores actuales como
 alternativa por defecto:
 
 `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
+
+Los modelos SQLAlchemy representan las tablas existentes y sus relaciones. El
+historial de reservas y la configuración del hotel ya usan sesiones ORM. Las
+operaciones críticas de registro, cambios de estado y cobros continúan con
+`mysql-connector-python` y sus transacciones actuales; la migración es gradual
+para conservar las reglas del sistema. No se crean tablas automáticamente:
+primero se ejecuta `DATABASE/BD_Registro.sql`.
+
+La ventana de historial usa un `QThread` con señales para actualizar el estado,
+entregar resultados y reportar errores sin modificar widgets desde el hilo de
+trabajo. Si se cancela una carga durante una consulta a MySQL, se descartan sus
+resultados al terminar la consulta; no se interrumpe la operación de base de
+datos a mitad de ejecución.
+
+La pestaña administrativa «Reportes» permite exportar los pagos realizados
+dentro del rango seleccionado a Excel (`.xlsx`) o PDF (`.pdf`). Ambos formatos
+incluyen el detalle de cada pago, el total recibido, la cantidad de pagos y el
+resumen diario, además del desglose de cantidad e importe por método de pago.
+Se selecciona la ubicación del archivo al exportar.
 
 ## Navegación y permisos
 

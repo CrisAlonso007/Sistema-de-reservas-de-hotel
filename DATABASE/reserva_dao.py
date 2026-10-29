@@ -1,8 +1,14 @@
 # DATABASE/reserva_dao.py
 from datetime import date
 from decimal import Decimal
+
 from DATABASE.conexion import ConexionBD
+from DATABASE.models import Configuracion, Habitacion, Reserva
+from DATABASE.conexion_orm import SessionLocal
 from mysql.connector import Error
+from sqlalchemy import case, select
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.orm import joinedload
 
 class ReservaDAO:
     """DAO de la tabla Reserva: estancias, ingresos y salidas."""
@@ -636,7 +642,7 @@ class ReservaDAO:
             fecha,
         )
 
-    def obtener_todas(self):
+    def obtener_todas(self, estricto=False):
         """Reservas de cualquier fecha y cualquier estado, incluidas las canceladas.
 
         Es el listado completo del hotel. Antes la interfaz solo consultaba las
@@ -647,7 +653,70 @@ class ReservaDAO:
         quien llama siempre recibe la mesa igual y ordenada sin tener que
         reacomodar los datos en Python.
         """
-        return self._listar("", incluir_canceladas=True)
+        try:
+            with SessionLocal() as session:
+                prioridad_estado = case(
+                    (Reserva.estado == "Pendiente", 1),
+                    (Reserva.estado == "Iniciada", 2),
+                    (Reserva.estado == "Cancelada", 3),
+                    (Reserva.estado == "Finalizada", 4),
+                    else_=99,
+                )
+                consulta = (
+                    select(Reserva)
+                    .join(Reserva.habitacion)
+                    .options(
+                        joinedload(Reserva.habitacion),
+                        joinedload(Reserva.empleado_registro),
+                        joinedload(Reserva.empleado_checkin),
+                        joinedload(Reserva.empleado_salida),
+                    )
+                    .order_by(
+                        prioridad_estado,
+                        Reserva.fecha_entrada,
+                        Habitacion.no_habitacion,
+                        Reserva.id,
+                    )
+                )
+                reservas = session.scalars(consulta).all()
+                return [
+                    {
+                        "id": reserva.id,
+                        "cliente": reserva.cliente,
+                        "identificacion": reserva.identificacion,
+                        "contacto": reserva.contacto,
+                        "noches": reserva.noches,
+                        "fecha_entrada": reserva.fecha_entrada,
+                        "fecha_salida": reserva.fecha_salida,
+                        "metodo_pago": reserva.metodo_pago,
+                        "total": reserva.total,
+                        "monto_pagado": reserva.monto_pagado,
+                        "saldo": reserva.total - reserva.monto_pagado,
+                        "estado": reserva.estado,
+                        "habitacion_id": reserva.habitacion_id,
+                        "empleado_id": reserva.empleado_id,
+                        "creado_en": reserva.creado_en,
+                        "habitacion_nombre": reserva.habitacion.nombre,
+                        "habitacion_numero": reserva.habitacion.no_habitacion,
+                        "empleado_nombre": reserva.empleado_registro.nombre_completo,
+                        "checkin_empleado": (
+                            reserva.empleado_checkin.nombre_completo
+                            if reserva.empleado_checkin
+                            else None
+                        ),
+                        "salida_empleado": (
+                            reserva.empleado_salida.nombre_completo
+                            if reserva.empleado_salida
+                            else None
+                        ),
+                    }
+                    for reserva in reservas
+                ]
+        except SQLAlchemyError as err:
+            print(f"Error al obtener las reservas: {err}")
+            if estricto:
+                raise
+            return []
 
     def _listar(self, filtro, *valores, incluir_canceladas=False):
         """Consulta base del panel de recepción: reservas unidas al catálogo.
@@ -948,51 +1017,34 @@ class ReservaDAO:
     # ------------------------------------------------------------------
     def obtener_configuracion(self):
         """Devuelve todos los parámetros del hotel como un diccionario clave→valor."""
-        conexion = self.db.conectar()
-        if not conexion:
-            return {}
-
         try:
-            cursor = conexion.cursor(dictionary=True)
-            cursor.execute("SELECT clave, valor FROM Configuracion")
-            filas = cursor.fetchall()
-            cursor.close()
-            return {fila["clave"]: fila["valor"] for fila in filas}
-        except Error as err:
+            with SessionLocal() as session:
+                filas = session.scalars(select(Configuracion)).all()
+                return {fila.clave: fila.valor for fila in filas}
+        except SQLAlchemyError as err:
             print(f"Error al obtener la configuración: {err}")
             return {}
-        finally:
-            self.db.desconectar()
 
     def guardar_configuracion(self, pares: dict):
         """Guarda varios parámetros a la vez (upsert por clave)."""
         if not pares:
             return False, "No hay parámetros para guardar."
 
-        conexion = self.db.conectar()
-        if not conexion:
-            return False, "No hay conexión con el servidor de base de datos."
-
         try:
-            cursor = conexion.cursor()
-            for clave, valor in pares.items():
-                cursor.execute(
-                    """
-                    INSERT INTO Configuracion (clave, valor)
-                    VALUES (%s, %s)
-                    ON DUPLICATE KEY UPDATE valor = VALUES(valor)
-                    """,
-                    (clave, str(valor)),
-                )
-            conexion.commit()
-            cursor.close()
+            with SessionLocal.begin() as session:
+                for clave, valor in pares.items():
+                    parametro = session.get(Configuracion, clave)
+                    if parametro is None:
+                        session.add(Configuracion(clave=clave, valor=str(valor)))
+                    else:
+                        parametro.valor = str(valor)
             return True, "Parámetros guardados correctamente."
-        except Error as err:
-            conexion.rollback()
+        except OperationalError as err:
+            print(f"Error al guardar la configuración: {err}")
+            return False, "No hay conexión con el servidor de base de datos."
+        except SQLAlchemyError as err:
             print(f"Error al guardar la configuración: {err}")
             return False, "No se pudieron guardar los parámetros."
-        finally:
-            self.db.desconectar()
 
     # ------------------------------------------------------------------
     # REPORTES
@@ -1080,5 +1132,64 @@ class ReservaDAO:
         except Error as err:
             print(f"Error al obtener las reservas canceladas: {err}")
             return []
+        finally:
+            self.db.desconectar()
+
+    def pagos_en_periodo(self, fecha_inicio, fecha_fin):
+        """Devuelve los pagos realizados en el período con huésped y empleado."""
+        conexion = self.db.conectar()
+        if not conexion:
+            raise ConnectionError("No hay conexión con el servidor de base de datos.")
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT p.id AS pago_id, p.reserva_id, p.creado_en, p.monto,
+                    p.metodo_pago, r.cliente, r.identificacion,
+                    h.no_habitacion AS habitacion_numero,
+                    u.nombre_completo AS empleado_nombre
+                FROM Pago p
+                JOIN Reserva r ON r.id = p.reserva_id
+                JOIN registro_habitacion h ON h.id = r.habitacion_id
+                JOIN Usuario u ON u.id = p.empleado_id
+                WHERE DATE(p.creado_en) BETWEEN %s AND %s
+                ORDER BY p.creado_en, p.id
+                """,
+                (fecha_inicio, fecha_fin),
+            )
+            pagos = cursor.fetchall()
+            cursor.close()
+            return pagos
+        except Error as err:
+            print(f"Error al obtener los pagos del período: {err}")
+            raise
+        finally:
+            self.db.desconectar()
+
+    def ingresos_por_metodo(self, fecha_inicio, fecha_fin):
+        """Agrupa cantidad e importe de pagos por método en el período."""
+        conexion = self.db.conectar()
+        if not conexion:
+            raise ConnectionError("No hay conexión con el servidor de base de datos.")
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT metodo_pago, COUNT(*) AS cantidad, SUM(monto) AS total
+                FROM Pago
+                WHERE DATE(creado_en) BETWEEN %s AND %s
+                GROUP BY metodo_pago
+                ORDER BY metodo_pago
+                """,
+                (fecha_inicio, fecha_fin),
+            )
+            filas = cursor.fetchall()
+            cursor.close()
+            return filas
+        except Error as err:
+            print(f"Error al agrupar los pagos por método: {err}")
+            raise
         finally:
             self.db.desconectar()

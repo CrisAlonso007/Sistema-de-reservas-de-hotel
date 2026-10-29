@@ -46,7 +46,7 @@ class AdminWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.resize(660, 500)
 
-        self.ruta_imagen = ""
+        self.ruta_imagen = self.service.ruta_foto_defecto
 
         layout_principal = QVBoxLayout(self)
         layout_principal.setContentsMargins(20, 20, 20, 20)
@@ -57,6 +57,8 @@ class AdminWindow(QWidget):
         layout_grid.setVerticalSpacing(10)
 
         self._crear_selector_imagen(layout_grid)
+        if os.path.exists(self.ruta_imagen):
+            self.lbl_imagen.setPixmap(self._escalar(self.ruta_imagen))
         self._crear_campos(layout_grid)
 
         layout_principal.addLayout(layout_grid)

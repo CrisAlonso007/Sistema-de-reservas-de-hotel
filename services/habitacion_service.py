@@ -22,7 +22,9 @@ class HabitacionService:
         self.dao = HabitacionDAO()
 
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.ruta_foto_defecto = os.path.join(base_dir, "recursos", "habitacion1.jpg")
+        self.ruta_foto_defecto = os.path.join(
+            base_dir, "recursos", "placeholder-image.jpg"
+        )
 
     @staticmethod
     def _convertir_numero(numero, campo="valor"):
