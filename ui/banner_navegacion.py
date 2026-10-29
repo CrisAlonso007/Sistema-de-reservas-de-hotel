@@ -109,7 +109,7 @@ class BannerNavegacion(QWidget):
             accion_config.triggered.connect(self.configuracion_solicitada.emit)
             menu_usuario.addAction(accion_config)
 
-        self.btn_usuario = QPushButton(f"{nombre}  ·  {self._etiqueta_rol(self.es_admin)}")
+        self.btn_usuario = QPushButton(f"Hola, {nombre}")
         self.btn_usuario.setObjectName("bannerUsuario")
         self.btn_usuario.setCursor(Qt.PointingHandCursor)
         self.btn_usuario.setMinimumHeight(34)

@@ -6,16 +6,13 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDateEdit, QDialog, QFor
                             )
 
 from services.reserva_service import ReservaService
-from utils.stylesheets import (ESTILO_CAMPO_INVALIDO, ESTILO_CAMPO_VALIDO, ESTILO_PANEL,
-)
-from utils.validaciones import (es_identificacion_valida, es_texto_valido,
-                                validar_nombre_completo, validar_telefono,
-                                validar_nombre_completo_inmediato,
+from utils.stylesheets import ESTILO_PANEL
+from utils.validaciones import (validar_nombre_completo_inmediato,
                                 es_identificacion_valida_inmediato,
                                 validar_telefono_inmediato,
                                 filtrar_solo_letras, filtrar_identificacion, filtrar_telefono,
+                                aplicar_validador, crear_etiqueta_error,
                                 )
-from ui.validacion_helpers import aplicar_validador, crear_etiqueta_error
 
 
 class RegistroHuespedDialog(QDialog):
@@ -176,12 +173,26 @@ class RegistroHuespedDialog(QDialog):
         layout.addRow(self._etiqueta("Teléfono:"), self.txt_contacto)
         layout.addRow("", self.lbl_error_contacto)
 
-        aplicar_validador(self.txt_cliente, self.lbl_error_cliente,
-                          validar_nombre_completo_inmediato, filtrar_solo_letras)
-        aplicar_validador(self.txt_identificacion, self.lbl_error_identificacion,
-                          es_identificacion_valida_inmediato, filtrar_identificacion)
-        aplicar_validador(self.txt_contacto, self.lbl_error_contacto,
-                          validar_telefono_inmediato, filtrar_telefono)
+        self.validadores_huesped = [
+            aplicar_validador(
+                self.txt_cliente,
+                self.lbl_error_cliente,
+                validar_nombre_completo_inmediato,
+                filtrar_solo_letras,
+            ),
+            aplicar_validador(
+                self.txt_identificacion,
+                self.lbl_error_identificacion,
+                es_identificacion_valida_inmediato,
+                filtrar_identificacion,
+            ),
+            aplicar_validador(
+                self.txt_contacto,
+                self.lbl_error_contacto,
+                validar_telefono_inmediato,
+                filtrar_telefono,
+            ),
+        ]
 
         nota = QLabel("Los campos con * son obligatorios.")
         nota.setStyleSheet("font-size: 11px; color: #7f8c8d;")
@@ -283,12 +294,6 @@ class RegistroHuespedDialog(QDialog):
         if ayuda:
             campo.setToolTip(ayuda)
         return campo
-
-    def _pintar_campos(self, valido: bool):
-        """Resalta los campos del huésped para que se vea qué falta."""
-        self.txt_cliente.setStyleSheet(ESTILO_CAMPO_VALIDO if valido else ESTILO_CAMPO_INVALIDO)
-        self.txt_identificacion.setStyleSheet(ESTILO_CAMPO_VALIDO if valido else ESTILO_CAMPO_INVALIDO)
-        self.txt_contacto.setStyleSheet(ESTILO_CAMPO_VALIDO if valido else ESTILO_CAMPO_INVALIDO)
 
     def _etiqueta(self, texto):
         etiqueta = QLabel(texto)
@@ -432,17 +437,17 @@ class RegistroHuespedDialog(QDialog):
         identificacion = self.txt_identificacion.text().strip()
         contacto = self.txt_contacto.text().strip()
 
-        if not (validar_nombre_completo(cliente)
-                and es_identificacion_valida(identificacion)
-                and validar_telefono(contacto)):
-            self._pintar_campos(False)
-            faltantes = []
-            if not es_texto_valido(cliente, longitud_minima=2):
-                faltantes.append("el nombre completo")
-            if not es_identificacion_valida(identificacion):
-                faltantes.append("un documento de identidad válido")
-            if not validar_telefono(contacto):
-                faltantes.append("un teléfono válido")
+        campos_validos = [
+            validador.validar(forzar=True)
+            for validador in self.validadores_huesped
+        ]
+        if not all(campos_validos):
+            nombres_campos = ("el nombre completo", "el documento de identidad", "el teléfono")
+            faltantes = [
+                nombre
+                for nombre, valido in zip(nombres_campos, campos_validos)
+                if not valido
+            ]
 
             QMessageBox.warning(
                 self,
@@ -450,15 +455,17 @@ class RegistroHuespedDialog(QDialog):
                 "Revise los datos marcados en rojo. Se necesita:\n\n"
                 f"• {', '.join(faltantes)}.",
             )
-            if not es_texto_valido(cliente, longitud_minima=2):
-                self.txt_cliente.setFocus()
-            elif not es_identificacion_valida(identificacion):
-                self.txt_identificacion.setFocus()
-            else:
-                self.txt_contacto.setFocus()
+            siguiente_campo = next(
+                campo
+                for campo, valido in zip(
+                    (self.txt_cliente, self.txt_identificacion, self.txt_contacto),
+                    campos_validos,
+                )
+                if not valido
+            )
+            siguiente_campo.setFocus()
             return
 
-        self._pintar_campos(True)
         inmediata = self._es_hospedaje_inmediato()
         entrada, salida = self._tramo_actual()
         exito, resultado = self.reserva_service.registrar_estancia(

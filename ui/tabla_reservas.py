@@ -3,7 +3,7 @@ from datetime import date
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QAbstractItemView,
-    QLineEdit, QComboBox,
+    QLineEdit, QComboBox, QToolButton, QMenu,
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
@@ -28,7 +28,7 @@ class TablaReservas(QWidget):
     # (ni el catálogo de habitaciones), así que delega en quien la contiene.
     editar_reserva_solicitada = Signal(dict)
 
-    ANCHO_COLUMNA_ACCIONES = 210
+    ANCHO_COLUMNA_ACCIONES = 220
 
     ENCABEZADOS = {
         "habitacion": "Hab.",
@@ -273,30 +273,98 @@ class TablaReservas(QWidget):
             return
 
         contenedor = QWidget()
-        layout = QVBoxLayout(contenedor)
-        layout.setContentsMargins(2, 3, 2, 3)
-        layout.setSpacing(4)
+        layout = QHBoxLayout(contenedor)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(8)
 
-        for texto, ranura, ayuda, habilitada in acciones:
-            btn = QPushButton(texto)
-            btn.setObjectName("accionTablaPrimaria")
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setFixedHeight(28)
-            btn.setToolTip(ayuda)
-            btn.setEnabled(habilitada)
-            if not habilitada:
-                btn.setCursor(Qt.ArrowCursor)
-            # `ranura` se fija como valor por defecto: si el cierre la leyera del
-            # ámbito compartido, los botones acabarían ejecutando la última
-            # acción asignada (cancelar en vez de alojar, por ejemplo).
-            btn.clicked.connect(lambda _=False, r=reserva, accion=ranura: accion(r))
-            layout.addWidget(btn)
+        principal = self._accion_principal(acciones, reserva)
+        secundarias = [accion for accion in acciones if accion is not principal]
 
-        if len(acciones) > 1:
-            # Una fila por botón: con varias acciones hay que dar altura extra o
-            # los botones se solapan dentro de la celda.
-            self.tabla.setRowHeight(fila, 32 * len(acciones) + 6)
+        if principal is not None:
+            texto, ranura, ayuda, habilitada = principal
+            btn_principal = QPushButton(self._etiqueta_accion(texto))
+            btn_principal.setObjectName(
+                "accionTablaPeligro" if texto == "Cancelar reserva"
+                else "accionTablaPrimaria"
+            )
+            btn_principal.setCursor(
+                Qt.CursorShape.PointingHandCursor if habilitada
+                else Qt.CursorShape.ArrowCursor
+            )
+            btn_principal.setFixedHeight(34)
+            btn_principal.setToolTip(ayuda)
+            btn_principal.setEnabled(habilitada)
+            btn_principal.clicked.connect(
+                lambda _=False, r=reserva, accion=ranura: accion(r)
+            )
+            layout.addWidget(btn_principal, stretch=1)
+
+        if secundarias:
+            btn_mas = QToolButton()
+            btn_mas.setObjectName("accionTablaMenu")
+            btn_mas.setText("⋮")
+            btn_mas.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+            btn_mas.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            btn_mas.setFixedSize(40, 36)
+            btn_mas.setAccessibleName("Más acciones")
+            btn_mas.setToolTip("Ver otras acciones disponibles para esta estancia.")
+
+            menu = QMenu(btn_mas)
+            es_admin = es_administrador(self.usuario_actual)
+            acciones_admin = {
+                "Editar reserva",
+                "Forzar salida",
+                "Anular estancia",
+                "Reactivar reserva",
+            }
+            separador_agregado = False
+            for texto, ranura, ayuda, habilitada in secundarias:
+                if es_admin and texto in acciones_admin and not separador_agregado:
+                    menu.addSeparator()
+                    separador_agregado = True
+                accion_menu = menu.addAction(texto)
+                accion_menu.setToolTip(ayuda)
+                accion_menu.setEnabled(habilitada)
+                accion_menu.triggered.connect(
+                    lambda _=False, r=reserva, accion=ranura: accion(r)
+                )
+            btn_mas.setMenu(menu)
+            layout.addWidget(btn_mas)
+
+        self.tabla.setRowHeight(fila, 46)
         self.tabla.setCellWidget(fila, len(self.columnas), contenedor)
+
+    def _accion_principal(self, acciones, reserva):
+        """Elige la operación más habitual según el estado de la estancia."""
+        estado = reserva["estado"]
+        if estado == "Pendiente":
+            if reserva["fecha_entrada"] <= date.today():
+                prioridad = ("Marcar como ocupada", "Cancelar reserva", "Editar reserva")
+            elif es_administrador(self.usuario_actual):
+                prioridad = ("Editar reserva", "Cancelar reserva")
+            else:
+                prioridad = ("Cancelar reserva",)
+        elif estado == "Iniciada":
+            prioridad = ("Registrar salida", "Extender estadía")
+        else:
+            prioridad = ("Reactivar reserva",)
+
+        for texto_prioritario in prioridad:
+            for accion in acciones:
+                if accion[0] == texto_prioritario:
+                    return accion
+        return acciones[0] if acciones else None
+
+    @staticmethod
+    def _etiqueta_accion(texto):
+        return {
+            "Marcar como ocupada": "Ingreso",
+            "Cancelar reserva": "Cancelar",
+            "Editar reserva": "Editar",
+            "Registrar salida": "Salida",
+            "Extender estadía": "Extender",
+            "Reactivar reserva": "Reactivar",
+        }.get(texto, texto)
 
     def _acciones(self, reserva):
         """Acciones que admite una reserva según su estado y su fecha.

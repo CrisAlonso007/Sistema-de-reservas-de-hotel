@@ -239,6 +239,46 @@ ESTILO_PANEL = """
     QPushButton#accionTablaSecundaria:hover {
         background-color: #eef2f6;
     }
+    QPushButton#accionTablaPeligro {
+        background-color: #fff7f6;
+        color: #b83227;
+        border: 1px solid #e4b7b2;
+        border-radius: 5px;
+        padding: 5px 9px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    QPushButton#accionTablaPeligro:hover {
+        background-color: #fce9e7;
+    }
+    QToolButton#accionTablaMenu {
+        background-color: #ffffff;
+        color: #34495e;
+        border: 1px solid #c3ccd6;
+        border-radius: 5px;
+        padding: 0;
+        font-size: 22px;
+        font-weight: bold;
+    }
+    QToolButton#accionTablaMenu::menu-indicator {
+        image: none;
+    }
+    QToolButton#accionTablaMenu:hover {
+        background-color: #eef2f6;
+        border-color: #9eacba;
+    }
+    QMenu {
+        background-color: #ffffff;
+        border: 1px solid #dfe4ea;
+        padding: 5px;
+    }
+    QMenu::item {
+        padding: 7px 22px 7px 12px;
+        color: #1f2d3d;
+    }
+    QMenu::item:selected {
+        background-color: #eef2f6;
+    }
     QGroupBox#seccion {
         background-color: #ffffff;
         border: 1px solid #dfe4ea;

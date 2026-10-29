@@ -8,8 +8,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QDate
 from PySide6.QtGui import QColor
 from services.reserva_service import ReservaService
-from utils.validaciones import es_monto_cobro_valido, filtrar_precio
-from ui.validacion_helpers import aplicar_validador, crear_etiqueta_error
+from utils.validaciones import (
+    es_monto_cobro_valido,
+    filtrar_precio,
+    aplicar_validador,
+    crear_etiqueta_error,
+)
 
 class DialogoEditarReserva(QDialog):
     """Corrige las fechas y la habitación de una reserva pendiente.
