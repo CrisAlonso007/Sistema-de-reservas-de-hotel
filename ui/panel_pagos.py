@@ -53,7 +53,7 @@ class PanelPagos(QWidget):
         lbl_titulo.setObjectName("panelTitulo")
         textos.addWidget(lbl_titulo)
 
-        lbl_subtitulo = QLabel("Cobros, abonos y saldos de las estancias del hotel")
+        lbl_subtitulo = QLabel("Consulta pagos realizados y revisa saldos pendientes.")
         lbl_subtitulo.setObjectName("panelSubtitulo")
         textos.addWidget(lbl_subtitulo)
 
@@ -64,7 +64,7 @@ class PanelPagos(QWidget):
         btn_actualizar.setObjectName("accionSecundaria")
         btn_actualizar.setCursor(Qt.PointingHandCursor)
         btn_actualizar.setFixedHeight(38)
-        btn_actualizar.setToolTip("Vuelve a leer las cuentas y sus saldos.")
+        btn_actualizar.setToolTip("Vuelve a consultar los pagos y saldos pendientes.")
         btn_actualizar.clicked.connect(self.refrescar)
         layout.addWidget(btn_actualizar)
 
@@ -74,7 +74,7 @@ class PanelPagos(QWidget):
         layout = QVBoxLayout()
         layout.setSpacing(10)
 
-        grupo = QGroupBox("Cuentas de las reservas")
+        grupo = QGroupBox("Estado de pagos")
         grupo.setObjectName("seccion")
         layout_grupo = QVBoxLayout(grupo)
         layout_grupo.setContentsMargins(14, 18, 14, 14)
@@ -111,7 +111,7 @@ class PanelPagos(QWidget):
         self.txt_buscar.setPlaceholderText("Buscar por huésped, habitación o documento...")
         self.txt_buscar.setClearButtonEnabled(True)
         self.txt_buscar.setFixedHeight(30)
-        self.txt_buscar.setToolTip("Filtra las cuentas por huésped, habitación o documento.")
+        self.txt_buscar.setToolTip("Filtra los pagos por huésped, habitación o documento.")
         self.txt_buscar.textChanged.connect(self._filtrar)
         layout.addWidget(self.txt_buscar, stretch=1)
 
@@ -121,7 +121,7 @@ class PanelPagos(QWidget):
         for estado in ReservaService.ESTADOS_PAGO:
             self.cmb_estado_pago.addItem(ReservaService.etiqueta_estado_pago(estado), estado)
         self.cmb_estado_pago.setFixedHeight(30)
-        self.cmb_estado_pago.setToolTip("Muestra solo las cuentas del estado de pago elegido.")
+        self.cmb_estado_pago.setToolTip("Muestra solo los pagos del estado elegido.")
         self.cmb_estado_pago.currentIndexChanged.connect(self._filtrar)
         layout.addWidget(self.cmb_estado_pago)
 
@@ -137,7 +137,7 @@ class PanelPagos(QWidget):
     # DATOS
     # ------------------------------------------------------------------
     def refrescar(self):
-        """Recarga las cuentas de las reservas vigentes."""
+        """Recarga los pagos y saldos de las reservas vigentes."""
         if not self.reserva_service:
             return
 
@@ -146,7 +146,7 @@ class PanelPagos(QWidget):
         cuentas = self.reserva_service.obtener_cuentas()
 
         if not cuentas:
-            item = QTableWidgetItem("No hay cuentas para mostrar.")
+            item = QTableWidgetItem("No hay reservas vigentes para mostrar.")
             item.setForeground(QColor("#8a97a6"))
             self.tabla.setRowCount(1)
             self.tabla.setItem(0, 0, item)
@@ -212,9 +212,9 @@ class PanelPagos(QWidget):
         btn.setFixedHeight(28)
         btn.setEnabled(not saldada)
         if saldada:
-            btn.setToolTip("Esta cuenta ya está pagada por completo.")
+            btn.setToolTip("Esta reserva ya está pagada por completo.")
         else:
-            btn.setToolTip("Abrir el desglose de la cuenta y registrar el cobro.")
+            btn.setToolTip("Abrir el detalle y registrar un pago.")
             btn.clicked.connect(lambda _=False, c=cuenta: self._abrir_cobro(c))
         layout.addWidget(btn)
         return contenedor
@@ -253,17 +253,13 @@ class PanelPagos(QWidget):
             if coincide:
                 visibles += 1
 
-        self.lbl_conteo.setText(f"{visibles} de {total} cuentas" if total else "")
+        self.lbl_conteo.setText(f"{visibles} de {total} reservas" if total else "")
 
     # ------------------------------------------------------------------
     # COBRO
     # ------------------------------------------------------------------
     def buscar(self, texto):
-        """Deja la tabla filtrada por el huésped indicado.
-
-        Lo usa el tablero: al pulsar un nombre en «Cuentas por cobrar» se
-        llega aquí ya con esa cuenta aislada, lista para pulsar «Cobrar».
-        """
+        """Filtra las reservas por el huésped indicado desde el tablero."""
         self.txt_buscar.setText(str(texto or ""))
         self._filtrar()
 

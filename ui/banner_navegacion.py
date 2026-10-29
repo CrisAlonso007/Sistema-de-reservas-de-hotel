@@ -9,8 +9,6 @@ class BannerNavegacion(QWidget):
 
     panel_solicitado = Signal(str)
     sesion_cerrada_solicitada = Signal()
-    # Abre la configuración del hotel (solo administrador).
-    configuracion_solicitada = Signal()
     # Abre el popup de avisos junto al botón de la campana.
     notificaciones_solicitada = Signal()
 
@@ -48,16 +46,18 @@ class BannerNavegacion(QWidget):
         layout.addSpacing(30)
 
         # --------------------------------------------------
-        # NAVEGACIÓN PRINCIPAL (igual para ambos perfiles)
+        # NAVEGACIÓN PRINCIPAL
         # --------------------------------------------------
-        # La pestaña «Reportes» se oculta dentro del propio módulo según el rol,
-        # así que la barra no necesita distinguir a administrador de recepción.
         self.opciones = [
             ("dashboard", "Inicio", "Resumen de ocupación y llegadas del día."),
             ("catalogo", "Catálogo", "Ver y administrar las habitaciones del hotel."),
-            ("pagos_reportes", "Ingresos",
-             "Cuentas y cobros de las estancias; reportes de ingresos (solo administrador)."),
+            ("pagos_reportes", "Pagos", "Consultar pagos y saldos de reservas."),
         ]
+        if self.es_admin:
+            self.opciones.extend([
+                ("reportes", "Reportes", "Consultar y exportar reportes del hotel."),
+                ("administracion", "Configuración", "Configurar el hotel y gestionar al personal."),
+            ])
 
         for clave, titulo, ayuda in self.opciones:
             boton = QPushButton(titulo)
@@ -100,14 +100,6 @@ class BannerNavegacion(QWidget):
         accion_cerrar = QAction("Cerrar Sesión", self)
         accion_cerrar.triggered.connect(self.sesion_cerrada_solicitada.emit)
         menu_usuario.addAction(accion_cerrar)
-
-        # La configuración del hotel vive debajo de «Cerrar sesión», como pidió
-        # la operación: no es algo de uso diario.
-        if self.es_admin:
-            menu_usuario.addSeparator()
-            accion_config = QAction("Configuración del hotel", self)
-            accion_config.triggered.connect(self.configuracion_solicitada.emit)
-            menu_usuario.addAction(accion_config)
 
         self.btn_usuario = QPushButton(f"Hola, {nombre}")
         self.btn_usuario.setObjectName("bannerUsuario")

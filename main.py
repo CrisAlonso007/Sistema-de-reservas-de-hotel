@@ -6,12 +6,14 @@ from services.habitacion_service import HabitacionService
 from services.reserva_service import ReservaService
 from ui.login_window import LoginPersonal
 from ui.main_window import VentanaPrincipal
+from utils.stylesheets import configurar_tema_aplicacion
 
 class AppController:
     """Orquesta el acceso del personal y el ciclo de vida de la ventana principal."""
 
     def __init__(self):
         self.app = QApplication(sys.argv)
+        configurar_tema_aplicacion(self.app)
 
         self.autenticacion_service = AutenticacionService()
         self.servicio_habitaciones = HabitacionService()

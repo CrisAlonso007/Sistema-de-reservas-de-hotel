@@ -1,4 +1,52 @@
 # utils/stylesheets.py
+from PySide6.QtGui import QColor, QPalette
+
+
+def configurar_tema_aplicacion(app):
+    """Aplica una paleta clara uniforme en todos los equipos."""
+    app.setStyle("Fusion")
+
+    palette = QPalette()
+    colores = {
+        QPalette.ColorRole.Window: "#f4f6f8",
+        QPalette.ColorRole.WindowText: "#1f2d3d",
+        QPalette.ColorRole.Base: "#ffffff",
+        QPalette.ColorRole.AlternateBase: "#eef2f6",
+        QPalette.ColorRole.ToolTipBase: "#1f2d3d",
+        QPalette.ColorRole.ToolTipText: "#ffffff",
+        QPalette.ColorRole.Text: "#1f2d3d",
+        QPalette.ColorRole.Button: "#ffffff",
+        QPalette.ColorRole.ButtonText: "#1f2d3d",
+        QPalette.ColorRole.BrightText: "#b42318",
+        QPalette.ColorRole.Link: "#2f6fb0",
+        QPalette.ColorRole.Highlight: "#d6e6f7",
+        QPalette.ColorRole.HighlightedText: "#1f2d3d",
+        QPalette.ColorRole.PlaceholderText: "#6b7c8f",
+        QPalette.ColorRole.Light: "#ffffff",
+        QPalette.ColorRole.Midlight: "#e4e9ef",
+        QPalette.ColorRole.Dark: "#9eacba",
+        QPalette.ColorRole.Mid: "#c3ccd6",
+        QPalette.ColorRole.Shadow: "#6b7c8f",
+    }
+
+    for role, color in colores.items():
+        palette.setColor(QPalette.ColorGroup.Active, role, QColor(color))
+        palette.setColor(QPalette.ColorGroup.Inactive, role, QColor(color))
+
+    colores_deshabilitados = {
+        QPalette.ColorRole.WindowText: "#7b8998",
+        QPalette.ColorRole.Base: "#f1f3f5",
+        QPalette.ColorRole.Text: "#7b8998",
+        QPalette.ColorRole.Button: "#eef2f6",
+        QPalette.ColorRole.ButtonText: "#7b8998",
+        QPalette.ColorRole.PlaceholderText: "#8a97a6",
+    }
+    for role, color in colores_deshabilitados.items():
+        palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(color))
+
+    app.setPalette(palette)
+
+
 ESTILO_SELECTOR_IMAGEN = """
     QLabel {
         border: 2px dashed #aaa;

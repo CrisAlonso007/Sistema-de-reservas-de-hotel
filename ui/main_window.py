@@ -13,6 +13,7 @@ from ui.dialogs import DialogoEditarReserva
 from ui.panel_catalogo import PanelCatalogo
 from ui.panel_dashboard import PanelDashboard
 from ui.panel_pagos_reportes import PanelPagosReportes
+from ui.panel_reportes import PanelReportes
 from ui.ventana_administracion import VentanaAdministracion
 from ui.panel_notificaciones import PanelNotificaciones
 from ui.historial_huespedes import HistorialHuespedesWindow
@@ -50,7 +51,6 @@ class VentanaPrincipal(QMainWindow):
         self.banner = BannerNavegacion(usuario_actual=self.usuario_actual)
         self.banner.panel_solicitado.connect(self._ir_a_panel)
         self.banner.sesion_cerrada_solicitada.connect(self._cerrar_sesion)
-        self.banner.configuracion_solicitada.connect(self._abrir_configuracion)
         self.banner.notificaciones_solicitada.connect(self._abrir_notificaciones)
 
         # --------------------------------------------------
@@ -98,10 +98,16 @@ class VentanaPrincipal(QMainWindow):
             self.PANEL_DETALLE: self.vista_detalle,
         }
 
-        # Los paneles de administración se agrupan bajo «Configuración del hotel»
-        # y se construyen solo para el administrador.
+        self.panel_reportes = None
         self.panel_administracion = None
         if self.es_admin:
+            self.panel_reportes = PanelReportes(
+                usuario_actual=self.usuario_actual,
+                reserva_service=self.reserva_service,
+                habitacion_service=self.habitacion_service,
+            )
+            self.paneles["reportes"] = self.panel_reportes
+
             self.panel_administracion = VentanaAdministracion(
                 usuario_actual=self.usuario_actual,
                 reserva_service=self.reserva_service,
@@ -109,11 +115,7 @@ class VentanaPrincipal(QMainWindow):
                 autenticacion_service=self.autenticacion_service,
             )
             self.panel_administracion.catalogo_modificado.connect(self._al_modificar_catalogo)
-            # Se registra como un panel accesible desde la barra o desde el menú:
-            # en la nueva estructura lo abrimos desde el menú de sesión, pero lo
-            # dejamos disponible en el stack para reaprovechar la navegación.
             self.paneles["administracion"] = self.panel_administracion
-        self.panel_reportes = getattr(self.panel_pagos_y_reportes, "panel_reportes", None)
 
         self.stack = QStackedWidget()
         for panel in self.paneles.values():
@@ -324,13 +326,6 @@ class VentanaPrincipal(QMainWindow):
             self.banner.set_notificaciones(len(avisos))
         except Exception:
             self.banner.set_notificaciones(0)
-
-    def _abrir_configuracion(self):
-        if not self.es_admin:
-            return
-        self._ir_a_panel("administracion")
-        if self.panel_administracion is not None:
-            self.panel_administracion.refrescar()
 
     def _abrir_notificaciones(self):
         if self.popup_notificaciones is None:
