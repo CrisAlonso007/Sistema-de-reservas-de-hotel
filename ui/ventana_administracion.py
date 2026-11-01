@@ -1,7 +1,7 @@
 # ui/ventana_administracion.py
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
-    QTabWidget, QGroupBox, QSpinBox, QLineEdit, QTableWidget,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QTabWidget, QSpinBox, QCheckBox, QLineEdit, QTextEdit, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QDialog, QAbstractItemView,
     QFormLayout, QInputDialog, QComboBox,
 )
@@ -118,11 +118,12 @@ class DialogoEmpleado(QDialog):
 class VentanaAdministracion(QWidget):
     """Panel de configuración del hotel. Solo visible para administradores.
 
-    Reúne en pestañas todo lo que ajusta el funcionamiento del hotel:
-    parámetros de las estancias, tarifas y temporadas, y gestión del personal.
+    Reúne la identidad, los horarios, las políticas operativas, los pagos y los
+    datos que identifican los comprobantes, además de la gestión del personal.
     """
 
     catalogo_modificado = Signal()
+    configuracion_modificada = Signal()
 
     def __init__(self, usuario_actual: dict = None, reserva_service=None,
                  habitacion_service=None, autenticacion_service=None, parent=None):
@@ -145,20 +146,20 @@ class VentanaAdministracion(QWidget):
         lbl_titulo = QLabel("Administración")
         lbl_titulo.setObjectName("panelTitulo")
         encabezado.addWidget(lbl_titulo)
-        lbl_sub = QLabel("Parámetros del hotel y gestión del personal")
+        lbl_sub = QLabel("Configuración del hotel y gestión del personal")
         lbl_sub.setObjectName("panelSubtitulo")
         encabezado.addWidget(lbl_sub)
         layout.addLayout(encabezado)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._crear_tab_parametros(), "Parámetros del hotel")
+        self.tabs.addTab(self._crear_tab_parametros(), "Configuración del hotel")
         self.tabs.addTab(self._crear_tab_personal(), "Gestión de personal")
         layout.addWidget(self.tabs, stretch=1)
 
         self.refrescar()
 
     # ------------------------------------------------------------------
-    # PESTAÑA: PARÁMETROS DEL HOTEL
+    # PESTAÑA: CONFIGURACIÓN DEL HOTEL
     # ------------------------------------------------------------------
     def _crear_tab_parametros(self):
         pagina = QWidget()
@@ -166,46 +167,15 @@ class VentanaAdministracion(QWidget):
         layout.setContentsMargins(14, 16, 14, 14)
         layout.setSpacing(14)
 
-        grupo = QGroupBox("Reglas de las estancias")
-        grupo.setObjectName("seccion")
-        grid = QGridLayout(grupo)
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(12)
+        self.tabs_configuracion = QTabWidget()
+        self.tabs_configuracion.addTab(self._crear_tab_informacion_hotel(), "Información del hotel")
+        self.tabs_configuracion.addTab(self._crear_tab_horarios(), "Horarios")
+        self.tabs_configuracion.addTab(self._crear_tab_politicas(), "Políticas")
+        self.tabs_configuracion.addTab(self._crear_tab_pagos(), "Pagos e impuestos")
+        self.tabs_configuracion.addTab(self._crear_tab_comprobantes(), "Comprobantes")
+        layout.addWidget(self.tabs_configuracion, stretch=1)
 
-        self.spn_anticipacion = QSpinBox()
-        self.spn_anticipacion.setRange(0, 3650)
-        self.spn_anticipacion.setSuffix(" días")
-        self.spn_anticipacion.setFixedHeight(32)
-
-        self.spn_noches_min = QSpinBox()
-        self.spn_noches_min.setRange(1, 365)
-        self.spn_noches_min.setSuffix(" noche(s)")
-        self.spn_noches_min.setFixedHeight(32)
-
-        self.spn_noches_max = QSpinBox()
-        self.spn_noches_max.setRange(1, 365)
-        self.spn_noches_max.setSuffix(" noche(s)")
-        self.spn_noches_max.setFixedHeight(32)
-
-        self.spn_aviso_pago = QSpinBox()
-        self.spn_aviso_pago.setRange(0, 30)
-        self.spn_aviso_pago.setSuffix(" días")
-        self.spn_aviso_pago.setFixedHeight(32)
-
-        campos = [
-            ("Antelación máxima para reservar:", self.spn_anticipacion, 0),
-            ("Duración mínima de la estadía:", self.spn_noches_min, 1),
-            ("Duración máxima de la estadía:", self.spn_noches_max, 2),
-            ("Aviso previo para cobrar:", self.spn_aviso_pago, 3),
-        ]
-        for etiqueta, campo, fila in campos:
-            grid.addWidget(QLabel(etiqueta), fila, 0)
-            grid.addWidget(campo, fila, 1)
-        grid.setColumnStretch(1, 1)
-
-        layout.addWidget(grupo)
-
-        btn_guardar = QPushButton("Guardar parámetros")
+        btn_guardar = QPushButton("Guardar configuración")
         btn_guardar.setObjectName("accionPrimaria")
         btn_guardar.setCursor(Qt.PointingHandCursor)
         btn_guardar.setFixedHeight(38)
@@ -216,24 +186,141 @@ class VentanaAdministracion(QWidget):
         fila_boton.addWidget(btn_guardar)
         fila_boton.addStretch()
         layout.addLayout(fila_boton)
-        layout.addStretch()
+        return pagina
 
+    def _crear_tab_informacion_hotel(self):
+        pagina = QWidget()
+        formulario = QFormLayout(pagina)
+        formulario.setContentsMargins(18, 18, 18, 18)
+        formulario.setSpacing(10)
+
+        self.txt_hotel_nombre = QLineEdit()
+        self.txt_hotel_direccion = QLineEdit()
+        self.txt_hotel_telefono = QLineEdit()
+        self.txt_hotel_correo = QLineEdit()
+
+        formulario.addRow("Nombre:", self.txt_hotel_nombre)
+        formulario.addRow("Dirección:", self.txt_hotel_direccion)
+        formulario.addRow("Teléfono:", self.txt_hotel_telefono)
+        formulario.addRow("Correo:", self.txt_hotel_correo)
+        return pagina
+
+    def _crear_tab_horarios(self):
+        pagina = QWidget()
+        formulario = QFormLayout(pagina)
+        formulario.setContentsMargins(18, 18, 18, 18)
+        formulario.setSpacing(10)
+
+        self.txt_hora_checkin = QLineEdit()
+        self.txt_hora_checkin.setPlaceholderText("HH:MM")
+        self.txt_hora_checkout = QLineEdit()
+        self.txt_hora_checkout.setPlaceholderText("HH:MM")
+        self.txt_horario_recepcion = QLineEdit()
+        self.txt_late_checkout_hora = QLineEdit()
+        self.txt_late_checkout_hora.setPlaceholderText("HH:MM")
+        self.lbl_late_checkout_cargo = QLabel("Sin cargo")
+
+        formulario.addRow("Check-in habitual:", self.txt_hora_checkin)
+        formulario.addRow("Check-out habitual:", self.txt_hora_checkout)
+        formulario.addRow("Atención de recepción:", self.txt_horario_recepcion)
+        formulario.addRow("Límite de late check-out:", self.txt_late_checkout_hora)
+        formulario.addRow("Cargo de late check-out:", self.lbl_late_checkout_cargo)
+        formulario.addRow("", QLabel("La salida tardía depende de la disponibilidad de la habitación."))
+        return pagina
+
+    def _crear_tab_politicas(self):
+        pagina = QWidget()
+        formulario = QFormLayout(pagina)
+        formulario.setContentsMargins(18, 18, 18, 18)
+        formulario.setSpacing(10)
+
+        self.lbl_confirmacion_horas = QLabel("Sin vencimiento automático")
+        self.spn_cancelacion_horas = QSpinBox()
+        self.spn_cancelacion_horas.setRange(0, 720)
+        self.spn_cancelacion_horas.setSuffix(" horas")
+        self.spn_penalizacion_cancelacion = QSpinBox()
+        self.spn_penalizacion_cancelacion.setRange(0, 100)
+        self.spn_penalizacion_cancelacion.setSuffix(" %")
+        self.spn_penalizacion_no_show = QSpinBox()
+        self.spn_penalizacion_no_show.setRange(0, 100)
+        self.spn_penalizacion_no_show.setSuffix(" %")
+
+        formulario.addRow("Vencimiento de reservas pendientes:", self.lbl_confirmacion_horas)
+        formulario.addRow("Cancelación gratuita hasta:", self.spn_cancelacion_horas)
+        formulario.addRow("Penalización por cancelar tarde:", self.spn_penalizacion_cancelacion)
+        formulario.addRow("Penalización por no presentarse:", self.spn_penalizacion_no_show)
+        formulario.addRow(
+            "", QLabel("El no-show se registra manualmente por un administrador.")
+        )
+        return pagina
+
+    def _crear_tab_pagos(self):
+        pagina = QWidget()
+        formulario = QFormLayout(pagina)
+        formulario.setContentsMargins(18, 18, 18, 18)
+        formulario.setSpacing(10)
+        self.cmb_moneda = QComboBox()
+        self.cmb_moneda.addItem("Córdoba nicaragüense (NIO)", "NIO")
+        self.cmb_moneda.addItem("Dólar estadounidense (USD)", "USD")
+        formulario.addRow("Moneda principal:", self.cmb_moneda)
+        formulario.addRow(
+            "", QLabel("Cambiar la moneda no convierte los importes ni las tarifas existentes.")
+        )
+
+        self.check_metodos_pago = {}
+        grupo_metodos = QWidget()
+        metodos_layout = QVBoxLayout(grupo_metodos)
+        metodos_layout.setContentsMargins(0, 0, 0, 0)
+        for metodo in ReservaService.METODOS_PAGO:
+            check = QCheckBox(metodo)
+            self.check_metodos_pago[metodo] = check
+            metodos_layout.addWidget(check)
+        formulario.addRow("Métodos aceptados:", grupo_metodos)
+        formulario.addRow("", QLabel("La tarifa se configura por habitación; no se aplica impuesto adicional."))
+        return pagina
+
+    def _crear_tab_comprobantes(self):
+        pagina = QWidget()
+        formulario = QFormLayout(pagina)
+        formulario.setContentsMargins(18, 18, 18, 18)
+        formulario.setSpacing(10)
+        self.txt_comprobante_prefijo = QLineEdit()
+        self.txt_comprobante_mensaje = QTextEdit()
+        self.txt_comprobante_mensaje.setMaximumHeight(90)
+        formulario.addRow("Prefijo de numeración:", self.txt_comprobante_prefijo)
+        formulario.addRow("Nota al pie:", self.txt_comprobante_mensaje)
+        formulario.addRow("", QLabel("Los comprobantes usarán este prefijo y una numeración consecutiva."))
         return pagina
 
     def _guardar_parametros(self):
-        parametros = self.reserva_service.obtener_parametros()
         datos = {
-            "dias_anticipacion_max": self.spn_anticipacion.value(),
-            "noches_minimas": self.spn_noches_min.value(),
-            "noches_maximas": self.spn_noches_max.value(),
-            "factor_temporada_alta": parametros["factor_temporada_alta"],
-            "descuento_porcentaje": parametros["descuento_porcentaje"],
-            "temporada_alta_inicio": parametros["temporada_alta_inicio"],
-            "temporada_alta_fin": parametros["temporada_alta_fin"],
-            "dias_aviso_pago": self.spn_aviso_pago.value(),
+            "hotel_nombre": self.txt_hotel_nombre.text(),
+            "hotel_direccion": self.txt_hotel_direccion.text(),
+            "hotel_telefono": self.txt_hotel_telefono.text(),
+            "hotel_correo": self.txt_hotel_correo.text(),
+            "hora_checkin": self.txt_hora_checkin.text(),
+            "hora_checkout": self.txt_hora_checkout.text(),
+            "horario_recepcion": self.txt_horario_recepcion.text(),
+            "confirmacion_horas": 0,
+            "cancelacion_horas_limite": self.spn_cancelacion_horas.value(),
+            "cancelacion_penalizacion_pct": self.spn_penalizacion_cancelacion.value(),
+            "no_show_penalizacion_pct": self.spn_penalizacion_no_show.value(),
+            "late_checkout_hora": self.txt_late_checkout_hora.text(),
+            "late_checkout_cargo": 0,
+            "moneda": self.cmb_moneda.currentData(),
+            "metodos_pago": [
+                metodo for metodo, check in self.check_metodos_pago.items()
+                if check.isChecked()
+            ],
+            "comprobante_prefijo": self.txt_comprobante_prefijo.text(),
+            "comprobante_mensaje": self.txt_comprobante_mensaje.toPlainText(),
         }
-        exito, mensaje = self.reserva_service.actualizar_parametros(self.usuario_actual, datos)
-        self._avisar(exito, mensaje, "Parámetros guardados")
+        exito, mensaje = self.reserva_service.actualizar_configuracion_hotel(
+            self.usuario_actual, datos
+        )
+        self._avisar(exito, mensaje, "Configuración guardada")
+        if exito:
+            self.configuracion_modificada.emit()
 
     # ------------------------------------------------------------------
     # PESTAÑA: GESTIÓN DE PERSONAL
@@ -364,12 +451,24 @@ class VentanaAdministracion(QWidget):
         self._cargar_personal()
 
     def _cargar_parametros(self):
-        parametros = self.reserva_service.obtener_parametros()
-
-        self.spn_anticipacion.setValue(parametros["dias_anticipacion_max"])
-        self.spn_noches_min.setValue(parametros["noches_minimas"])
-        self.spn_noches_max.setValue(parametros["noches_maximas"])
-        self.spn_aviso_pago.setValue(parametros["dias_aviso_pago"])
+        config = self.reserva_service.obtener_configuracion_hotel(refrescar=True)
+        self.txt_hotel_nombre.setText(config["hotel_nombre"])
+        self.txt_hotel_direccion.setText(config["hotel_direccion"])
+        self.txt_hotel_telefono.setText(config["hotel_telefono"])
+        self.txt_hotel_correo.setText(config["hotel_correo"])
+        self.txt_hora_checkin.setText(config["hora_checkin"])
+        self.txt_hora_checkout.setText(config["hora_checkout"])
+        self.txt_horario_recepcion.setText(config["horario_recepcion"])
+        self.txt_late_checkout_hora.setText(config["late_checkout_hora"])
+        self.spn_cancelacion_horas.setValue(config["cancelacion_horas_limite"])
+        self.spn_penalizacion_cancelacion.setValue(config["cancelacion_penalizacion_pct"])
+        self.spn_penalizacion_no_show.setValue(config["no_show_penalizacion_pct"])
+        indice_moneda = self.cmb_moneda.findData(config["moneda"])
+        self.cmb_moneda.setCurrentIndex(max(indice_moneda, 0))
+        for metodo, check in self.check_metodos_pago.items():
+            check.setChecked(metodo in config["metodos_pago"])
+        self.txt_comprobante_prefijo.setText(config["comprobante_prefijo"])
+        self.txt_comprobante_mensaje.setPlainText(config["comprobante_mensaje"])
 
     def _cargar_personal(self):
         personal = self.autenticacion_service.listar_personal(self.usuario_actual)

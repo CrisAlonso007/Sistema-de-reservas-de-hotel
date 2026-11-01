@@ -11,10 +11,13 @@ class PanelCatalogo(QWidget):
     """Listado de habitaciones con su ocupación en tiempo real y acciones de administración."""
     catalogo_modificado = Signal()
 
-    def __init__(self, usuario_actual: dict = None, habitacion_service=None, al_abrir_detalle=None, al_editar_habitacion=None, parent=None):
+    def __init__(self, usuario_actual: dict = None, habitacion_service=None,
+                 reserva_service=None, al_abrir_detalle=None, al_editar_habitacion=None,
+                 parent=None):
         super().__init__(parent)
         self.usuario_actual = usuario_actual or {}
         self.habitacion_service = habitacion_service
+        self.reserva_service = reserva_service
         self.al_abrir_detalle = al_abrir_detalle
         self.al_editar_habitacion = al_editar_habitacion
 
@@ -73,15 +76,21 @@ class PanelCatalogo(QWidget):
         if not self.habitacion_service:
             return
 
+        self.aplicar_habitaciones(self.habitacion_service.obtener_todas())
+
+    def aplicar_habitaciones(self, habitaciones):
         self.lista_habitaciones.clear()
-        habitaciones = self.habitacion_service.obtener_todas()
         es_admin = self.usuario_actual.get("rol") == "administrador"
 
         for hab in habitaciones:
             item = QListWidgetItem(self.lista_habitaciones)
             item.setSizeHint(QSize(0, 118))
 
-            tarjeta = TarjetaHabitacion(hab, es_admin=es_admin)
+            moneda = (
+                self.reserva_service.obtener_configuracion_hotel()["moneda"]
+                if self.reserva_service else "NIO"
+            )
+            tarjeta = TarjetaHabitacion(hab, es_admin=es_admin, moneda=moneda)
             tarjeta.detalles_solicitados.connect(self._solicitar_detalle)
             if es_admin:
                 tarjeta.editar_solicitado.connect(self._solicitar_edicion)
@@ -102,10 +111,14 @@ class PanelCatalogo(QWidget):
         ocupadas = sum(1 for h in habitaciones if h.get("estatus") == "Ocupado")
         reservadas = sum(1 for h in habitaciones if h.get("estatus") == "Reservado")
         mantenimiento = sum(1 for h in habitaciones if h.get("estatus") == "Mantenimiento")
+        limpieza = sum(
+            1 for h in habitaciones if h.get("estatus") == "Pendiente de limpieza"
+        )
 
         return (
             f"{len(habitaciones)} habitaciones · {disponibles} disponibles · "
-            f"{reservadas} reservadas · {ocupadas} ocupadas · {mantenimiento} en mantenimiento"
+            f"{reservadas} reservadas · {ocupadas} ocupadas · "
+            f"{limpieza} pendientes de limpieza · {mantenimiento} en mantenimiento"
         )
 
     def _solicitar_detalle(self, habitacion):
@@ -134,7 +147,6 @@ class PanelCatalogo(QWidget):
         if exito:
             QMessageBox.information(self, "Éxito", mensaje)
             self.catalogo_modificado.emit()
-            self.refrescar()
         else:
             QMessageBox.warning(self, "No se pudo eliminar", mensaje)
 
@@ -169,6 +181,5 @@ class PanelCatalogo(QWidget):
         if exito:
             QMessageBox.information(self, "Estado actualizado", mensaje)
             self.catalogo_modificado.emit()
-            self.refrescar()
         else:
             QMessageBox.warning(self, "No se pudo actualizar", mensaje)

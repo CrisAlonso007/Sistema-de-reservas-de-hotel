@@ -61,6 +61,7 @@ def exportar_reporte_pagos_excel(ruta, datos):
     _escribir_fila(pagos, encabezados, 1)
     _estilizar_encabezado(pagos, 1, len(encabezados))
 
+    formato_moneda = '"C$"#,##0.00' if datos.get("moneda") == "NIO" else '"$"#,##0.00'
     for fila, pago in enumerate(datos["pagos"], start=2):
         valores = [
             pago["pago_id"],
@@ -75,7 +76,7 @@ def exportar_reporte_pagos_excel(ruta, datos):
         ]
         _escribir_fila(pagos, valores, fila)
         pagos.cell(fila, 2).number_format = "dd/mm/yyyy hh:mm"
-        pagos.cell(fila, 7).number_format = '"$"#,##0.00'
+        pagos.cell(fila, 7).number_format = formato_moneda
         if fila % 2 == 0:
             for celda in pagos[fila]:
                 celda.fill = PatternFill("solid", fgColor=COLOR_SECUNDARIO)
@@ -96,7 +97,7 @@ def exportar_reporte_pagos_excel(ruta, datos):
     resumen["B4"] = datos["cantidad_pagos"]
     resumen["A5"] = "Total recibido"
     resumen["B5"] = float(datos["total"])
-    resumen["B5"].number_format = '"$"#,##0.00'
+    resumen["B5"].number_format = formato_moneda
 
     fila_encabezado = 7
     resumen.cell(fila_encabezado, 1, "Fecha")
@@ -107,7 +108,7 @@ def exportar_reporte_pagos_excel(ruta, datos):
         resumen.cell(fila, 1, total_dia["fecha"]).number_format = "dd/mm/yyyy"
         resumen.cell(fila, 2, total_dia["cantidad"])
         celda_total = resumen.cell(fila, 3, float(total_dia["total"]))
-        celda_total.number_format = '"$"#,##0.00'
+        celda_total.number_format = formato_moneda
 
     fila_metodos = fila_encabezado + len(datos["por_dia"]) + 4
     resumen.merge_cells(
@@ -130,7 +131,7 @@ def exportar_reporte_pagos_excel(ruta, datos):
         resumen.cell(fila, 1, metodo["metodo_pago"])
         resumen.cell(fila, 2, metodo["cantidad"])
         celda_total = resumen.cell(fila, 3, float(metodo["total"]))
-        celda_total.number_format = '"$"#,##0.00'
+        celda_total.number_format = formato_moneda
     _ajustar_columnas(resumen)
 
     libro.properties.title = "Reporte de pagos del hotel"

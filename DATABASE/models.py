@@ -78,6 +78,9 @@ class Reserva(Base):
     cliente: Mapped[str] = mapped_column(String(100), nullable=False)
     identificacion: Mapped[str] = mapped_column(String(50), nullable=False)
     contacto: Mapped[str] = mapped_column(String(50), nullable=False)
+    numero_huespedes: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1")
+    )
     noches: Mapped[int] = mapped_column(Integer, nullable=False)
     fecha_entrada: Mapped[date] = mapped_column(Date, nullable=False)
     fecha_salida: Mapped[date] = mapped_column(Date, nullable=False)
@@ -147,11 +150,40 @@ class Pago(Base):
     empleado: Mapped[Usuario] = relationship(back_populates="pagos_registrados")
 
 
+class TareaHabitacion(Base):
+    __tablename__ = "TareaHabitacion"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    habitacion_id: Mapped[int] = mapped_column(
+        ForeignKey("registro_habitacion.id", ondelete="RESTRICT"), nullable=False
+    )
+    reserva_id: Mapped[int | None] = mapped_column(
+        ForeignKey("Reserva.id", ondelete="SET NULL")
+    )
+    tipo: Mapped[str] = mapped_column(String(30), nullable=False)
+    turno: Mapped[str] = mapped_column(String(20), nullable=False)
+    fecha_programada: Mapped[date] = mapped_column(Date, nullable=False)
+    estado: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'Pendiente'")
+    )
+    iniciada_en: Mapped[datetime | None] = mapped_column(DateTime)
+    finalizada_en: Mapped[datetime | None] = mapped_column(DateTime)
+    iniciada_por: Mapped[int | None] = mapped_column(
+        ForeignKey("Usuario.id", ondelete="SET NULL")
+    )
+    finalizada_por: Mapped[int | None] = mapped_column(
+        ForeignKey("Usuario.id", ondelete="SET NULL")
+    )
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
 class Configuracion(Base):
     __tablename__ = "Configuracion"
 
     clave: Mapped[str] = mapped_column(String(60), primary_key=True)
-    valor: Mapped[str] = mapped_column(String(255), nullable=False)
+    valor: Mapped[str] = mapped_column(String(1000), nullable=False)
     descripcion: Mapped[str] = mapped_column(
         String(255), nullable=False, server_default=text("''")
     )

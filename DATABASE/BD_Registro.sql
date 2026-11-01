@@ -44,7 +44,12 @@ ALTER TABLE registro_habitacion
 
 UPDATE registro_habitacion
 SET imagen = 'recursos/placeholder-image.jpg'
-WHERE imagen IS NULL OR imagen = '' OR imagen = 'recursos/placeholder-image.png';
+WHERE id > 0
+  AND (
+      imagen IS NULL
+      OR imagen = ''
+      OR imagen = 'recursos/placeholder-image.png'
+  );
 
 -- RESERVAS / ESTANCIAS
 CREATE TABLE IF NOT EXISTS Reserva (
@@ -52,13 +57,14 @@ CREATE TABLE IF NOT EXISTS Reserva (
     cliente VARCHAR(100) NOT NULL,
     identificacion VARCHAR(50) NOT NULL,
     contacto VARCHAR(50) NOT NULL,
+    numero_huespedes INT NOT NULL DEFAULT 1,
     noches INT NOT NULL,
     fecha_entrada DATE NOT NULL,
     fecha_salida DATE NOT NULL,
     metodo_pago ENUM('Tarjeta de Crédito / Débito', 'Efectivo en Recepción', 'Transferencia Bancaria') NOT NULL,
     total DECIMAL(10,2) NOT NULL,
     monto_pagado DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    estado ENUM('Pendiente', 'Iniciada', 'Finalizada', 'Cancelada') NOT NULL DEFAULT 'Pendiente',
+    estado ENUM('Pendiente', 'Iniciada', 'Finalizada', 'Cancelada', 'No presentada') NOT NULL DEFAULT 'Pendiente',
     habitacion_id INT NOT NULL,
     empleado_id INT NOT NULL,
     checkin_empleado_id INT NULL,
@@ -74,8 +80,57 @@ CREATE TABLE IF NOT EXISTS Reserva (
     INDEX idx_reserva_empleado (empleado_id),
     CONSTRAINT chk_reserva_fechas CHECK (fecha_salida > fecha_entrada),
     CONSTRAINT chk_reserva_noches CHECK (noches > 0),
+    CONSTRAINT chk_reserva_numero_huespedes CHECK (numero_huespedes > 0),
     CONSTRAINT chk_reserva_total CHECK (total >= 0),
     CONSTRAINT chk_reserva_monto_pagado CHECK (monto_pagado >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE Reserva
+    MODIFY COLUMN estado
+        ENUM('Pendiente', 'Iniciada', 'Finalizada', 'Cancelada', 'No presentada')
+        NOT NULL DEFAULT 'Pendiente';
+
+-- Compatibilidad con instalaciones anteriores: agrega el campo sin reemplazar
+-- reservas existentes (que quedan con 1 huésped como valor predeterminado).
+SET @existe_numero_huespedes = (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'Reserva'
+      AND column_name = 'numero_huespedes'
+);
+SET @sql_migracion_huespedes = IF(
+    @existe_numero_huespedes = 0,
+    'ALTER TABLE Reserva ADD COLUMN numero_huespedes INT NOT NULL DEFAULT 1, '
+    'ADD CONSTRAINT chk_reserva_numero_huespedes CHECK (numero_huespedes > 0)',
+    'SELECT 1'
+);
+PREPARE migracion_huespedes FROM @sql_migracion_huespedes;
+EXECUTE migracion_huespedes;
+DEALLOCATE PREPARE migracion_huespedes;
+
+-- TAREAS DE LIMPIEZA Y MANTENIMIENTO, con inicio y fin reales del servicio.
+CREATE TABLE IF NOT EXISTS TareaHabitacion (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    habitacion_id INT NOT NULL,
+    reserva_id INT NULL,
+    tipo ENUM('Limpieza diaria', 'Limpieza de salida', 'Mantenimiento técnico') NOT NULL,
+    turno ENUM('Mañana', 'Tarde', 'Salida', 'Mantenimiento') NOT NULL,
+    fecha_programada DATE NOT NULL,
+    estado ENUM('Pendiente', 'En proceso', 'Completada', 'Cancelada')
+        NOT NULL DEFAULT 'Pendiente',
+    iniciada_en DATETIME NULL,
+    finalizada_en DATETIME NULL,
+    iniciada_por INT NULL,
+    finalizada_por INT NULL,
+    creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (habitacion_id) REFERENCES registro_habitacion(id) ON DELETE RESTRICT,
+    FOREIGN KEY (reserva_id) REFERENCES Reserva(id) ON DELETE SET NULL,
+    FOREIGN KEY (iniciada_por) REFERENCES Usuario(id) ON DELETE SET NULL,
+    FOREIGN KEY (finalizada_por) REFERENCES Usuario(id) ON DELETE SET NULL,
+    UNIQUE KEY uq_tarea_reserva_turno (reserva_id, tipo, fecha_programada, turno),
+    INDEX idx_tarea_estado_fecha (estado, fecha_programada),
+    INDEX idx_tarea_habitacion (habitacion_id, tipo, estado, fecha_programada)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- COBROS / PAGOS DE UNA ESTANCIA
@@ -92,26 +147,103 @@ CREATE TABLE IF NOT EXISTS Pago (
     CONSTRAINT chk_pago_monto CHECK (monto > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Devoluciones trazables: nunca se borra un cobro original.
+CREATE TABLE IF NOT EXISTS Devolucion (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    reserva_id INT NOT NULL,
+    empleado_id INT NOT NULL,
+    monto DECIMAL(10,2) NOT NULL,
+    motivo VARCHAR(255) NOT NULL,
+    creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (reserva_id) REFERENCES Reserva(id) ON DELETE RESTRICT,
+    FOREIGN KEY (empleado_id) REFERENCES Usuario(id) ON DELETE RESTRICT,
+    INDEX idx_devolucion_reserva (reserva_id),
+    CONSTRAINT chk_devolucion_monto CHECK (monto > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Contador transaccional para emitir numeración consecutiva sin duplicados.
+CREATE TABLE IF NOT EXISTS ControlComprobante (
+    id TINYINT PRIMARY KEY,
+    siguiente INT UNSIGNED NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO ControlComprobante (id, siguiente) VALUES (1, 1);
+
+CREATE TABLE IF NOT EXISTS Comprobante (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    pago_id INT NOT NULL UNIQUE,
+    numero VARCHAR(40) NOT NULL UNIQUE,
+    creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (pago_id) REFERENCES Pago(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- PARAMETROS DEL HOTEL Y TARIFAS
 CREATE TABLE IF NOT EXISTS Configuracion (
     clave VARCHAR(60) PRIMARY KEY,
-    valor VARCHAR(255) NOT NULL,
+    valor VARCHAR(1000) NOT NULL,
     descripcion VARCHAR(255) NOT NULL DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE Configuracion
+    MODIFY COLUMN valor VARCHAR(1000) NOT NULL;
+
+CREATE TABLE IF NOT EXISTS Devolucion (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    reserva_id INT NOT NULL,
+    empleado_id INT NOT NULL,
+    monto DECIMAL(10,2) NOT NULL,
+    motivo VARCHAR(255) NOT NULL,
+    creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (reserva_id) REFERENCES Reserva(id) ON DELETE RESTRICT,
+    FOREIGN KEY (empleado_id) REFERENCES Usuario(id) ON DELETE RESTRICT,
+    INDEX idx_devolucion_reserva (reserva_id),
+    CONSTRAINT chk_devolucion_monto CHECK (monto > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ControlComprobante (
+    id TINYINT PRIMARY KEY,
+    siguiente INT UNSIGNED NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO ControlComprobante (id, siguiente) VALUES (1, 1);
+
+CREATE TABLE IF NOT EXISTS Comprobante (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    pago_id INT NOT NULL UNIQUE,
+    numero VARCHAR(40) NOT NULL UNIQUE,
+    creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (pago_id) REFERENCES Pago(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Verificacion: deben aparecer Devolucion, Comprobante y ControlComprobante.
+SELECT TABLE_NAME
+FROM information_schema.tables
+WHERE table_schema = DATABASE()
+  AND table_name IN ('Devolucion', 'Comprobante', 'ControlComprobante')
+ORDER BY TABLE_NAME;
 
 -- ======================================================================
 -- DATOS ESENCIALES (Configuración, Usuarios base y Habitaciones base)
 -- ======================================================================
 
 INSERT INTO Configuracion (clave, valor, descripcion) VALUES
-    ('dias_anticipacion_max', '90', 'Antelación máxima, en días, con la que se puede reservar'),
-    ('noches_minimas', '1', 'Número mínimo de noches por estancia'),
-    ('noches_maximas', '30', 'Número máximo de noches por estancia'),
-    ('temporada_alta_inicio', '', 'Primer día de temporada alta (YYYY-MM-DD; vacío = sin temporada)'),
-    ('temporada_alta_fin', '', 'Último día de temporada alta (YYYY-MM-DD)'),
-    ('factor_temporada_alta', '1.20', 'Recargo aplicado al precio por noche en temporada alta'),
-    ('descuento_porcentaje', '0', 'Descuento general aplicado al total de la estancia (%)'),
-    ('dias_aviso_pago', '3', 'Días de antelación con que se avisa un cobro pendiente')
+    ('hotel_nombre', 'Allogi Hotel', 'Nombre del hotel'),
+    ('hotel_direccion', '', 'Dirección del hotel'),
+    ('hotel_telefono', '', 'Teléfono del hotel'),
+    ('hotel_correo', '', 'Correo del hotel'),
+    ('hora_checkin', '14:00', 'Hora habitual de check-in'),
+    ('hora_checkout', '12:00', 'Hora habitual de check-out'),
+    ('horario_recepcion', '24 horas', 'Horario de atención de recepción'),
+    ('confirmacion_horas', '0', 'Horas para confirmar; 0 significa sin vencimiento automático'),
+    ('cancelacion_horas_limite', '48', 'Horas antes del check-in para cancelar sin penalización'),
+    ('cancelacion_penalizacion_pct', '20', 'Porcentaje retenido por cancelación tardía'),
+    ('no_show_penalizacion_pct', '30', 'Porcentaje retenido en caso de no-show'),
+    ('late_checkout_hora', '14:00', 'Hora límite para late check-out'),
+    ('late_checkout_cargo', '0.00', 'Cargo por late check-out; 0 significa sin cargo'),
+    ('moneda', 'NIO', 'Moneda principal: NIO o USD'),
+    ('metodos_pago', '["Tarjeta de Crédito / Débito","Efectivo en Recepción","Transferencia Bancaria"]', 'Métodos de pago aceptados en formato JSON'),
+    ('comprobante_prefijo', 'COMP', 'Prefijo de la numeración de comprobantes'),
+    ('comprobante_mensaje', 'Gracias por su preferencia.', 'Nota al pie de los comprobantes')
 ON DUPLICATE KEY UPDATE clave = clave;
 
 INSERT INTO Usuario

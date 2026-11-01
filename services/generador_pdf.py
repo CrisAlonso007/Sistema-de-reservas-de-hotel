@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
 import reportlab
@@ -46,6 +47,7 @@ def _pie_pagina(canvas, documento):
 
 def generar_reporte_pagos_pdf(ruta, datos):
     """Genera un PDF con el resumen y el detalle de pagos del período."""
+    simbolo = "C$" if datos.get("moneda") == "NIO" else "$"
     documento = SimpleDocTemplate(
         str(ruta),
         pagesize=landscape(letter),
@@ -104,7 +106,7 @@ def generar_reporte_pagos_pdf(ruta, datos):
     resumen = Table(
         [
             ["Cantidad de pagos", "Total recibido"],
-            [str(datos["cantidad_pagos"]), f"${datos['total']:,.2f}"],
+            [str(datos["cantidad_pagos"]), f"{simbolo} {datos['total']:,.2f}"],
         ],
         colWidths=[60 * mm, 60 * mm],
         hAlign="LEFT",
@@ -140,7 +142,7 @@ def generar_reporte_pagos_pdf(ruta, datos):
                 [
                     str(fila["fecha"].strftime("%d/%m/%Y")),
                     str(fila["cantidad"]),
-                    f"${fila['total']:,.2f}",
+                    f"{simbolo} {fila['total']:,.2f}",
                 ]
                 for fila in datos["por_dia"]
             ]
@@ -183,7 +185,7 @@ def generar_reporte_pagos_pdf(ruta, datos):
             [
                 Paragraph(escape(fila["metodo_pago"]), texto_celda),
                 str(fila["cantidad"]),
-                f"${fila['total']:,.2f}",
+                f"{simbolo} {fila['total']:,.2f}",
             ]
             for fila in datos["por_metodo"]
         ]
@@ -241,7 +243,7 @@ def generar_reporte_pagos_pdf(ruta, datos):
                 escape(str(pago["identificacion"])),
                 str(pago["habitacion_numero"]),
                 str(pago["reserva_id"]),
-                f"${pago['monto']:,.2f}",
+                f"{simbolo} {pago['monto']:,.2f}",
                 Paragraph(escape(str(pago["metodo_pago"])), texto_celda),
                 Paragraph(escape(str(pago["empleado_nombre"])), texto_celda),
             ]
@@ -277,4 +279,93 @@ def generar_reporte_pagos_pdf(ruta, datos):
             tabla_pagos,
         ]
     )
+    documento.build(contenido, onFirstPage=_pie_pagina, onLaterPages=_pie_pagina)
+
+
+def generar_comprobante_pdf(ruta, datos):
+    """Genera un comprobante individual para un pago ya registrado."""
+    documento = SimpleDocTemplate(
+        str(ruta),
+        pagesize=letter,
+        rightMargin=22 * mm,
+        leftMargin=22 * mm,
+        topMargin=18 * mm,
+        bottomMargin=20 * mm,
+        title=f"Comprobante {datos['numero']}",
+        author=str(datos.get("hotel_nombre") or "Allogi Hotel"),
+    )
+    estilos = getSampleStyleSheet()
+    titulo = ParagraphStyle(
+        "TituloComprobante",
+        parent=estilos["Title"],
+        fontName="HotelVera-Bold",
+        fontSize=17,
+        leading=21,
+        textColor=COLOR_PRINCIPAL,
+        alignment=1,
+        spaceAfter=8,
+    )
+    normal = ParagraphStyle(
+        "TextoComprobante",
+        parent=estilos["BodyText"],
+        fontName="HotelVera",
+        fontSize=10,
+        leading=14,
+    )
+    negrita = ParagraphStyle(
+        "TextoComprobanteNegrita",
+        parent=normal,
+        fontName="HotelVera-Bold",
+    )
+
+    contenido = []
+    contacto = [
+        str(datos.get("hotel_direccion") or ""),
+        str(datos.get("hotel_telefono") or ""),
+        str(datos.get("hotel_correo") or ""),
+    ]
+    contacto = [escape(valor) for valor in contacto if valor]
+    contenido.extend([
+        Paragraph(escape(str(datos.get("hotel_nombre") or "Allogi Hotel")), titulo),
+        Paragraph(" · ".join(contacto), normal) if contacto else Spacer(1, 1 * mm),
+        Spacer(1, 7 * mm),
+        Paragraph("COMPROBANTE DE PAGO", titulo),
+        Paragraph(f"Número: <b>{escape(str(datos['numero']))}</b>", normal),
+    ])
+
+    fecha = datos.get("creado_en")
+    if isinstance(fecha, datetime):
+        fecha = fecha.strftime("%d/%m/%Y %H:%M")
+    simbolo = "C$" if datos.get("moneda") == "NIO" else "$"
+    filas = [
+        ["Huésped", str(datos["cliente"])],
+        ["Documento", str(datos["identificacion"])],
+        ["Habitación", str(datos["habitacion_numero"])],
+        ["Reserva", str(datos["reserva_id"])],
+        ["Estadía", f"{datos['fecha_entrada']} al {datos['fecha_salida']}"],
+        ["Fecha del pago", str(fecha)],
+        ["Método de pago", str(datos["metodo_pago"])],
+        ["Registrado por", str(datos["empleado"])],
+        ["Monto recibido", f"{simbolo} {Decimal(str(datos['monto'])):,.2f}"],
+    ]
+    tabla = Table(
+        [[Paragraph(escape(clave), negrita), Paragraph(escape(valor), normal)]
+         for clave, valor in filas],
+        colWidths=[48 * mm, 112 * mm],
+        hAlign="LEFT",
+    )
+    tabla.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), COLOR_SECUNDARIO),
+        ("GRID", (0, 0), (-1, -1), 0.4, COLOR_BORDE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    contenido.extend([Spacer(1, 5 * mm), tabla, Spacer(1, 8 * mm)])
+    mensaje = str(datos.get("comprobante_mensaje") or "")
+    if mensaje:
+        contenido.append(Paragraph(escape(mensaje), normal))
+
     documento.build(contenido, onFirstPage=_pie_pagina, onLaterPages=_pie_pagina)

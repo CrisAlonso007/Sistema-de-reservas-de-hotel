@@ -179,7 +179,7 @@ class DetalleHabitacionWidget(QWidget):
         lbl_precio_titulo = QLabel("PRECIO POR NOCHE")
         lbl_precio_titulo.setObjectName("detalleEtiqueta")
         ficha_layout.addWidget(lbl_precio_titulo)
-        self.lbl_precio = QLabel("$0.00")
+        self.lbl_precio = QLabel(self.reserva_service.formato_dinero(0))
         self.lbl_precio.setObjectName("detallePrecio")
         ficha_layout.addWidget(self.lbl_precio)
 
@@ -247,7 +247,7 @@ class DetalleHabitacionWidget(QWidget):
             self.lbl_titulo.setText("Seleccione una habitación del catálogo")
             self.lbl_numero.setText("HABITACIÓN")
             self.lbl_estado.setText("Estado no disponible")
-            self.lbl_precio.setText("$0.00")
+            self.lbl_precio.setText(self.reserva_service.formato_dinero(0))
             self.lbl_tipo.setText("—")
             self.lbl_capacidad.setText("—")
             self.lbl_descripcion.setText("La descripción aparecerá aquí.")
@@ -269,7 +269,7 @@ class DetalleHabitacionWidget(QWidget):
         )
         self.lbl_tipo.setText(self.habitacion.get("tipo", "N/A"))
         self.lbl_capacidad.setText(capacidad)
-        self.lbl_precio.setText(f"${self._precio():,.2f}")
+        self.lbl_precio.setText(self.reserva_service.formato_dinero(self._precio()))
 
         color = COLORES_ESTATUS.get(estado, "#5d6d7e")
         fondo_estado = {

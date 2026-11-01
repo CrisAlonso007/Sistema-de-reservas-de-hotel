@@ -141,9 +141,11 @@ class PanelPagos(QWidget):
         if not self.reserva_service:
             return
 
+        self.aplicar_cuentas(self.reserva_service.obtener_cuentas())
+
+    def aplicar_cuentas(self, cuentas):
         self.tabla.setRowCount(0)
         self.tabla.clearSpans()
-        cuentas = self.reserva_service.obtener_cuentas()
 
         if not cuentas:
             item = QTableWidgetItem("No hay reservas vigentes para mostrar.")
@@ -161,9 +163,9 @@ class PanelPagos(QWidget):
             celdas = [
                 str(cuenta["habitacion_numero"]),
                 cuenta["cliente"],
-                f"${self.reserva_service.formato_monto(cuenta['total'])}",
-                f"${self.reserva_service.formato_monto(cuenta['monto_pagado'])}",
-                f"${self.reserva_service.formato_monto(cuenta['saldo'])}",
+                self.reserva_service.formato_dinero(cuenta["total"]),
+                self.reserva_service.formato_dinero(cuenta["monto_pagado"]),
+                self.reserva_service.formato_dinero(cuenta["saldo"]),
             ]
             for columna, texto in enumerate(celdas):
                 item = QTableWidgetItem(str(texto))
@@ -274,5 +276,4 @@ class PanelPagos(QWidget):
         dialogo.exec()
 
     def _al_registrar_pago(self):
-        self.refrescar()
         self.pago_registrado.emit()

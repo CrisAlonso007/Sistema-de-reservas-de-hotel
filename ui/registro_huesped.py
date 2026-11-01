@@ -5,7 +5,6 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDateEdit, QDialog, QFor
                             QScrollArea, QSpinBox, QVBoxLayout, QWidget,
                             )
 
-from services.reserva_service import ReservaService
 from utils.stylesheets import ESTILO_PANEL
 from utils.validaciones import (validar_nombre_completo_inmediato,
                                 es_identificacion_valida_inmediato,
@@ -234,24 +233,41 @@ class RegistroHuespedDialog(QDialog):
         layout.addRow(self._etiqueta("Fecha de entrada:"), self.fecha_entrada)
 
         self.txt_noches = QSpinBox()
-        self.txt_noches.setRange(1, 365)
+        self.txt_noches.setRange(1, 2_900_000)
         self.txt_noches.setValue(1)
         self.txt_noches.setFixedHeight(32)
-        self.txt_noches.setToolTip("Cantidad de noches de la estadía (de 1 a 365).")
+        self.txt_noches.setToolTip("Cantidad de noches de la estadía, sin máximo configurable.")
         layout.addRow(self._etiqueta("Noches:"), self.txt_noches)
+
+        self.txt_numero_huespedes = QSpinBox()
+        self.txt_numero_huespedes.setRange(1, 99)
+        self.txt_numero_huespedes.setValue(1)
+        self.txt_numero_huespedes.setFixedHeight(32)
+        self.txt_numero_huespedes.setToolTip(
+            "Incluya al huésped principal y a todos sus acompañantes. "
+            "No cambia la tarifa; debe respetar la capacidad de la habitación."
+        )
+        layout.addRow(self._etiqueta("Número de huéspedes:"), self.txt_numero_huespedes)
+        self.lbl_error_capacidad = QLabel("")
+        self.lbl_error_capacidad.setWordWrap(True)
+        self.lbl_error_capacidad.setStyleSheet(
+            "font-size: 12px; color: #c0392b; font-weight: bold;"
+        )
+        self.lbl_error_capacidad.hide()
+        layout.addRow("", self.lbl_error_capacidad)
 
         self.lbl_fecha_salida = QLabel("—")
         self.lbl_fecha_salida.setStyleSheet("font-size: 13px; font-weight: bold; color: #1f2d3d;")
         layout.addRow(self._etiqueta("Fecha de salida:"), self.lbl_fecha_salida)
 
         self.cmb_metodo_pago = QComboBox()
-        self.cmb_metodo_pago.addItems(ReservaService.METODOS_PAGO)
+        self.cmb_metodo_pago.addItems(self.reserva_service.metodos_pago_disponibles())
         self.cmb_metodo_pago.setFixedHeight(32)
         self.cmb_metodo_pago.setToolTip("Forma de pago acordada con el huésped.")
         layout.addRow(self._etiqueta("Método de pago:"), self.cmb_metodo_pago)
 
         fila_total = QHBoxLayout()
-        self.lbl_total = QLabel("$0.00")
+        self.lbl_total = QLabel(self.reserva_service.formato_dinero(0))
         self.lbl_total.setStyleSheet("font-size: 18px; font-weight: bold; color: #2f6fb0;")
         self.lbl_noches = QLabel("")
         self.lbl_noches.setStyleSheet("font-size: 12px; color: #5d6d7e;")
@@ -304,6 +320,7 @@ class RegistroHuespedDialog(QDialog):
     def _conectar_senales(self):
         self.btn_registrar.clicked.connect(self._registrar)
         self.cmb_habitacion.currentIndexChanged.connect(self._actualizar_resumen)
+        self.txt_numero_huespedes.valueChanged.connect(self._actualizar_resumen)
         self.cmb_tipo_estancia.currentIndexChanged.connect(self._cambiar_tipo_estancia)
         self.fecha_entrada.dateChanged.connect(self._cambiar_tramo)
         self.txt_noches.valueChanged.connect(self._cambiar_tramo)
@@ -326,7 +343,8 @@ class RegistroHuespedDialog(QDialog):
             self.fecha_entrada.blockSignals(False)
             self.lbl_efecto_tipo.setText(
                 "La habitación quedará ocupada de inmediato y el huésped aparecerá "
-                "en «Huéspedes alojados»."
+                f"en «Huéspedes alojados». Check-in habitual: "
+                f"{self.reserva_service.obtener_configuracion_hotel()['hora_checkin']}."
             )
             self.fecha_entrada.setToolTip(
                 "El hospedaje inmediato siempre empieza el día de hoy."
@@ -334,7 +352,9 @@ class RegistroHuespedDialog(QDialog):
         else:
             self.lbl_efecto_tipo.setText(
                 "La habitación quedará reservada para las fechas elegidas, sin "
-                "ocuparse todavía."
+                "ocuparse todavía. "
+                f"Check-in: {self.reserva_service.obtener_configuracion_hotel()['hora_checkin']} · "
+                f"check-out: {self.reserva_service.obtener_configuracion_hotel()['hora_checkout']}."
             )
             self.fecha_entrada.setToolTip("Día en que llegará el huésped.")
 
@@ -363,7 +383,7 @@ class RegistroHuespedDialog(QDialog):
         for i, hab in enumerate(disponibles):
             self.cmb_habitacion.addItem(
                 f"Hab. {hab['numero']:03d} · {hab['tipo']} · "
-                f"${hab['precio']:,.2f} / noche · {hab['capacidad_texto']}",
+                f"{self.reserva_service.formato_dinero(hab['precio'])} / noche · {hab['capacidad_texto']}",
                 hab,
             )
             if habitacion_preseleccionada and hab["id"] == habitacion_preseleccionada.get("id"):
@@ -406,8 +426,9 @@ class RegistroHuespedDialog(QDialog):
         hab = self._habitacion_seleccionada()
         if not hab:
             self.lbl_info_habitacion.setText("—")
-            self.lbl_total.setText("$0.00")
+            self.lbl_total.setText(self.reserva_service.formato_dinero(0))
             self.lbl_noches.setText("")
+            self.lbl_error_capacidad.hide()
             self.btn_registrar.setEnabled(False)
             return
 
@@ -416,11 +437,23 @@ class RegistroHuespedDialog(QDialog):
         self.lbl_info_habitacion.setText(
             f"{hab['nombre']} · {hab['tipo']} · capacidad {hab['capacidad_texto']}"
         )
-        self.lbl_total.setText(f"${total:,.2f}")
+        numero_huespedes = self.txt_numero_huespedes.value()
+        capacidad = int(hab.get("capacidad") or 0)
+        dentro_de_capacidad = 1 <= numero_huespedes <= capacidad
+        self.lbl_total.setText(self.reserva_service.formato_dinero(total))
         self.lbl_noches.setText(
-            f"({noches} noche{'s' if noches != 1 else ''} × ${hab['precio']:,.2f})"
+            f"({noches} noche{'s' if noches != 1 else ''} × "
+            f"{self.reserva_service.formato_dinero(hab['precio'])})"
         )
-        self.btn_registrar.setEnabled(True)
+        if dentro_de_capacidad:
+            self.lbl_error_capacidad.hide()
+        else:
+            self.lbl_error_capacidad.setText(
+                f"La habitación admite hasta {capacidad} huésped(es). "
+                "Reduzca la cantidad para continuar."
+            )
+            self.lbl_error_capacidad.show()
+        self.btn_registrar.setEnabled(dentro_de_capacidad)
 
     # ------------------------------------------------------------------
     # REGISTRO
@@ -473,6 +506,7 @@ class RegistroHuespedDialog(QDialog):
             cliente=cliente,
             identificacion=identificacion,
             contacto=contacto,
+            numero_huespedes=self.txt_numero_huespedes.value(),
             noches=self.txt_noches.value(),
             fecha_entrada=entrada.toString("yyyy-MM-dd"),
             fecha_salida=salida.toString("yyyy-MM-dd"),
@@ -491,16 +525,18 @@ class RegistroHuespedDialog(QDialog):
             mensaje = (
                 f"Hospedaje registrado para {self.txt_cliente.text().strip()}.\n\n"
                 f"Habitación: {hab['numero']:03d}\n"
+                f"Huéspedes: {self.txt_numero_huespedes.value()}\n"
                 f"Estadía: {entrada.toString('dd/MM/yyyy')} - {salida.toString('dd/MM/yyyy')}\n"
-                f"Total a cobrar: ${float(reserva['total']):,.2f}\n\n"
+                f"Total a cobrar: {self.reserva_service.formato_dinero(reserva['total'])}\n\n"
                 "La habitación figura como ocupada."
             )
         else:
             mensaje = (
                 f"Reserva #{reserva['id']} registrada para {self.txt_cliente.text().strip()}.\n\n"
                 f"Habitación: {hab['numero']:03d}\n"
+                f"Huéspedes: {self.txt_numero_huespedes.value()}\n"
                 f"Estadía: {entrada.toString('dd/MM/yyyy')} - {salida.toString('dd/MM/yyyy')}\n"
-                f"Total a cobrar: ${float(reserva['total']):,.2f}\n\n"
+                f"Total a cobrar: {self.reserva_service.formato_dinero(reserva['total'])}\n\n"
                 "La habitación quedó reservada. Registre el ingreso el día de llegada."
             )
 

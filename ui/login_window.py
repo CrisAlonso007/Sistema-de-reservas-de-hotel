@@ -1,17 +1,16 @@
 # ui/login_window.py
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame,
-    QDialog, QFormLayout, QMessageBox,
+    QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QFrame,
 )
 from PySide6.QtCore import Qt, Signal, QRegularExpression
 from PySide6.QtGui import QRegularExpressionValidator
 from services.autenticacion_service import AutenticacionService
-from utils.stylesheets import ESTILO_LOGIN, ESTILO_PANEL
-from utils.validaciones import es_password_valido, es_usuario_valido, MAX_TELEFONO
+from utils.stylesheets import ESTILO_LOGIN
+from utils.validaciones import es_password_valido, es_usuario_valido
 
 
 class LoginPersonal(QWidget):
-    """Acceso del personal del hotel, con opción de crear una cuenta de recepción."""
+    """Acceso del personal del hotel."""
 
     login_exitoso = Signal(dict)
 
@@ -87,13 +86,6 @@ class LoginPersonal(QWidget):
         btn_ingresar.clicked.connect(self._procesar_login)
         layout.addWidget(btn_ingresar)
 
-        btn_registro = QPushButton("Agregar empleado")
-        btn_registro.setObjectName("loginEnlace")
-        btn_registro.setFlat(True)
-        btn_registro.setCursor(Qt.PointingHandCursor)
-        btn_registro.clicked.connect(self._abrir_registro)
-        layout.addWidget(btn_registro, alignment=Qt.AlignmentFlag.AlignCenter)
-
         layout.addStretch()
 
         layout_raiz.addStretch()
@@ -118,114 +110,9 @@ class LoginPersonal(QWidget):
         self.limpiar_campos()
         self.login_exitoso.emit(resultado)
 
-    def _abrir_registro(self):
-        """Abre el autorregistro y deja el usuario listo para iniciar sesión."""
-        dialogo = DialogoRegistro(self.autenticacion_service, self)
-        if dialogo.exec() == QDialog.DialogCode.Accepted and dialogo.usuario_creado:
-            self.limpiar_campos()
-            self.txt_usuario.setText(dialogo.usuario_creado)
-            self.txt_password.setFocus()
-
     def limpiar_campos(self):
         """Deja el formulario sin residuos de la sesión anterior."""
         self.txt_usuario.clear()
         self.txt_password.clear()
         self.lbl_estado.clear()
         self.lbl_estado.setText("")
-
-
-class DialogoRegistro(QDialog):
-    """Crea una cuenta de recepción desde la pantalla de acceso.
-
-    El rol no se elige: el autorregistro siempre otorga el rol de
-    recepcionista, para que nadie pueda darse de alta como administrador.
-    """
-
-    def __init__(self, autenticacion_service, parent=None):
-        super().__init__(parent)
-        self.service = autenticacion_service
-        self.usuario_creado = None
-
-        self.setWindowTitle("Crear cuenta")
-        self.setModal(True)
-        self.setObjectName("panelRaiz")
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(ESTILO_PANEL)
-        self.setMinimumWidth(430)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(12)
-
-        lbl_titulo = QLabel("Crear cuenta")
-        lbl_titulo.setObjectName("panelTitulo")
-        layout.addWidget(lbl_titulo)
-
-        lbl_subtitulo = QLabel("La cuenta nueva se crea con el rol de recepcionista.")
-        lbl_subtitulo.setObjectName("panelSubtitulo")
-        layout.addWidget(lbl_subtitulo)
-
-        formulario = QFormLayout()
-        formulario.setSpacing(8)
-
-        self.txt_usuario = QLineEdit()
-        self.txt_usuario.setMaxLength(20)
-        self.txt_usuario.setPlaceholderText("usuario (3-20 letras, números o _)")
-
-        self.txt_password = QLineEdit()
-        self.txt_password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.txt_password.setMaxLength(30)
-        self.txt_password.setPlaceholderText("Mínimo 4 caracteres")
-
-        self.txt_confirmar = QLineEdit()
-        self.txt_confirmar.setEchoMode(QLineEdit.EchoMode.Password)
-        self.txt_confirmar.setMaxLength(30)
-        self.txt_confirmar.setPlaceholderText("Repita la contraseña")
-
-        self.txt_nombre = QLineEdit()
-        self.txt_identificacion = QLineEdit()
-        self.txt_correo = QLineEdit()
-        self.txt_telefono = QLineEdit()
-        self.txt_telefono.setMaxLength(MAX_TELEFONO)
-
-        formulario.addRow("Usuario:", self.txt_usuario)
-        formulario.addRow("Contraseña:", self.txt_password)
-        formulario.addRow("Confirmar contraseña:", self.txt_confirmar)
-        formulario.addRow("Rol:", QLabel("Recepcionista"))
-        formulario.addRow("Nombre completo:", self.txt_nombre)
-        formulario.addRow("Identificación:", self.txt_identificacion)
-        formulario.addRow("Correo:", self.txt_correo)
-        formulario.addRow("Teléfono:", self.txt_telefono)
-        layout.addLayout(formulario)
-
-        botones = QHBoxLayout()
-        botones.addStretch()
-        btn_cancelar = QPushButton("Cancelar")
-        btn_cancelar.setObjectName("accionSecundaria")
-        btn_cancelar.clicked.connect(self.reject)
-        btn_crear = QPushButton("Crear cuenta")
-        btn_crear.setObjectName("accionPrimaria")
-        btn_crear.clicked.connect(self._guardar)
-        botones.addWidget(btn_cancelar)
-        botones.addWidget(btn_crear)
-        layout.addLayout(botones)
-
-    def _guardar(self):
-        exito, mensaje = self.service.registrar_cuenta(
-            username=self.txt_usuario.text(),
-            password=self.txt_password.text(),
-            confirmacion=self.txt_confirmar.text(),
-            nombre_completo=self.txt_nombre.text(),
-            numero_identificacion=self.txt_identificacion.text(),
-            correo_electronico=self.txt_correo.text(),
-            numero_telefono=self.txt_telefono.text(),
-        )
-        if not exito:
-            QMessageBox.warning(self, "No se pudo crear la cuenta", mensaje)
-            return
-
-        self.usuario_creado = self.txt_usuario.text().strip()
-        QMessageBox.information(
-            self, "Cuenta creada", f"{mensaje}\n\nYa puede iniciar sesión."
-        ) 
-        self.accept()

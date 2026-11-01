@@ -111,7 +111,7 @@ class PanelNotificaciones(QFrame):
         saldo = float(aviso.get("saldo") or 0)
         if saldo > 0:
             detalle += (
-                f" Saldo: ${self.reserva_service.formato_monto(saldo)}."
+                f" Saldo: {self.reserva_service.formato_dinero(saldo)}."
             )
 
         texto = QLabel(detalle)

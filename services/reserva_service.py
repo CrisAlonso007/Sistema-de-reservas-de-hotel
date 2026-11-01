@@ -1,6 +1,8 @@
 # services/reserva_service.py
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
+import json
+import re
 from DATABASE.reserva_dao import ReservaDAO
 from mysql.connector import Error
 from utils.seguridad import (
@@ -36,6 +38,7 @@ class ReservaService:
     ESTADOS_RESERVA = [
         "Pendiente",
         "Iniciada",
+        "No presentada",
         "Cancelada",
         "Finalizada",
     ]
@@ -49,6 +52,7 @@ class ReservaService:
         "Iniciada": "Alojado",
         "Finalizada": "Finalizada",
         "Cancelada": "Cancelada",
+        "No presentada": "No presentada",
     }
 
     # Estados de la cuenta de una reserva. Se calculan a partir de monto_pagado
@@ -68,21 +72,34 @@ class ReservaService:
         "Pagado": "Pagado",
     }
 
-    # Parámetros del hotel por defecto. Si la tabla Configuracion no los trae
-    # (o trae un valor inválido), el sistema sigue funcionando con estos.
+    # Los avisos operativos siguen usando un plazo fijo; no es una política
+    # configurable del hotel.
     PARAMETROS_POR_DEFECTO = {
-        "dias_anticipacion_max": 90,
-        "noches_minimas": 1,
-        "noches_maximas": 30,
-        "temporada_alta_inicio": None,
-        "temporada_alta_fin": None,
-        "factor_temporada_alta": 1.0,
-        "descuento_porcentaje": 0.0,
         "dias_aviso_pago": 3,
+    }
+    CONFIGURACION_HOTEL_POR_DEFECTO = {
+        "hotel_nombre": "Allogi Hotel",
+        "hotel_direccion": "",
+        "hotel_telefono": "",
+        "hotel_correo": "",
+        "hora_checkin": "14:00",
+        "hora_checkout": "12:00",
+        "horario_recepcion": "24 horas",
+        "confirmacion_horas": 0,
+        "cancelacion_horas_limite": 48,
+        "cancelacion_penalizacion_pct": 20,
+        "no_show_penalizacion_pct": 30,
+        "late_checkout_hora": "14:00",
+        "late_checkout_cargo": "0.00",
+        "moneda": "NIO",
+        "metodos_pago": METODOS_PAGO,
+        "comprobante_mensaje": "Gracias por su preferencia.",
+        "comprobante_prefijo": "COMP",
     }
 
     def __init__(self):
         self.dao = ReservaDAO()
+        self._configuracion_hotel_cache = None
 
     @staticmethod
     def etiqueta_estado(estado: str) -> str:
@@ -113,109 +130,140 @@ class ReservaService:
     # PARAMETROS DEL HOTEL Y TARIFAS
     # ------------------------------------------------------------------
     def obtener_parametros(self) -> dict:
-        """Parámetros del hotel ya convertidos a su tipo (int, float, fecha).
+        """Ajustes internos de avisos de pago, no editables desde Configuración."""
+        return dict(self.PARAMETROS_POR_DEFECTO)
 
-        La tabla Configuracion guarda texto; cualquier valor ilegible cae al
-        valor por defecto en vez de romper el registro de estancias.
-        """
-        crudos = self.dao.obtener_configuracion()
-        parametros = dict(self.PARAMETROS_POR_DEFECTO)
+    def obtener_configuracion_hotel(self, refrescar=False) -> dict:
+        """Carga los ajustes visibles del hotel y aplica valores seguros por defecto."""
+        if self._configuracion_hotel_cache is None or refrescar:
+            crudos = self.dao.obtener_configuracion()
+            configuracion = dict(self.CONFIGURACION_HOTEL_POR_DEFECTO)
+            for clave in configuracion:
+                valor = crudos.get(clave)
+                if valor is not None:
+                    configuracion[clave] = valor
+            try:
+                metodos = json.loads(crudos.get("metodos_pago", ""))
+                if isinstance(metodos, list):
+                    metodos_validos = [
+                        metodo for metodo in metodos if metodo in self.METODOS_PAGO
+                    ]
+                    if metodos_validos:
+                        configuracion["metodos_pago"] = metodos_validos
+            except (TypeError, ValueError):
+                pass
+            if configuracion["moneda"] not in ("NIO", "USD"):
+                configuracion["moneda"] = "NIO"
+            if not re.fullmatch(
+                r"[A-Z0-9]{2,10}", str(configuracion["comprobante_prefijo"]).upper()
+            ):
+                configuracion["comprobante_prefijo"] = "COMP"
+            else:
+                configuracion["comprobante_prefijo"] = str(
+                    configuracion["comprobante_prefijo"]
+                ).upper()
+            configuracion["confirmacion_horas"] = self._a_entero(
+                crudos.get("confirmacion_horas"), 0
+            )
+            configuracion["cancelacion_horas_limite"] = self._a_entero(
+                crudos.get("cancelacion_horas_limite"), 48
+            )
+            configuracion["cancelacion_penalizacion_pct"] = self._a_entero(
+                crudos.get("cancelacion_penalizacion_pct"), 20
+            )
+            configuracion["no_show_penalizacion_pct"] = self._a_entero(
+                crudos.get("no_show_penalizacion_pct"), 30
+            )
+            self._configuracion_hotel_cache = configuracion
+        return dict(self._configuracion_hotel_cache)
 
-        parametros["dias_anticipacion_max"] = self._a_entero(
-            crudos.get("dias_anticipacion_max"), self.PARAMETROS_POR_DEFECTO["dias_anticipacion_max"]
-        )
-        parametros["noches_minimas"] = self._a_entero(
-            crudos.get("noches_minimas"), self.PARAMETROS_POR_DEFECTO["noches_minimas"]
-        )
-        parametros["noches_maximas"] = self._a_entero(
-            crudos.get("noches_maximas"), self.PARAMETROS_POR_DEFECTO["noches_maximas"]
-        )
-        parametros["factor_temporada_alta"] = self._a_decimal(
-            crudos.get("factor_temporada_alta"), self.PARAMETROS_POR_DEFECTO["factor_temporada_alta"]
-        )
-        parametros["descuento_porcentaje"] = self._a_decimal(
-            crudos.get("descuento_porcentaje"), self.PARAMETROS_POR_DEFECTO["descuento_porcentaje"]
-        )
-        parametros["temporada_alta_inicio"] = self._a_fecha_opcional(crudos.get("temporada_alta_inicio"))
-        parametros["temporada_alta_fin"] = self._a_fecha_opcional(crudos.get("temporada_alta_fin"))
-        parametros["dias_aviso_pago"] = self._a_entero(
-            crudos.get("dias_aviso_pago"), self.PARAMETROS_POR_DEFECTO["dias_aviso_pago"]
-        )
-
-        return parametros
-
-    def actualizar_parametros(self, usuario_actual: dict, parametros: dict) -> tuple[bool, str]:
-        """Guarda los parámetros del hotel. Exclusivo del administrador."""
+    def actualizar_configuracion_hotel(
+        self, usuario_actual: dict, configuracion: dict
+    ) -> tuple[bool, str]:
+        """Valida y guarda la configuración del hotel. Exclusivo del administrador."""
         if not sesion_valida(usuario_actual):
-            return False, "Debe iniciar sesión para modificar los parámetros."
+            return False, "Debe iniciar sesión para modificar la configuración."
         if not es_administrador(usuario_actual):
             return False, MENSAJE_SOLO_ADMIN
 
         try:
-            anticipacion = int(parametros.get("dias_anticipacion_max"))
-            noches_min = int(parametros.get("noches_minimas"))
-            noches_max = int(parametros.get("noches_maximas"))
-            dias_aviso = int(parametros.get("dias_aviso_pago", 3))
-        except (TypeError, ValueError):
-            return False, "La antelación y la duración de la estadía deben ser números enteros."
-
-        if not (0 <= anticipacion <= 3650):
-            return False, "La antelación máxima debe estar entre 0 y 3650 días."
-        if not (1 <= noches_min <= 365):
-            return False, "El mínimo de noches debe estar entre 1 y 365."
-        if not (1 <= noches_max <= 365):
-            return False, "El máximo de noches debe estar entre 1 y 365."
-        if noches_max < noches_min:
-            return False, "El máximo de noches no puede ser menor que el mínimo."
-        if not (0 <= dias_aviso <= 30):
-            return False, "Los días de aviso de cobro deben estar entre 0 y 30."
-
-        try:
-            factor = Decimal(str(parametros.get("factor_temporada_alta")))
-            descuento = Decimal(str(parametros.get("descuento_porcentaje")))
+            confirmacion = int(configuracion.get("confirmacion_horas", 0))
+            horas_cancelacion = int(configuracion.get("cancelacion_horas_limite", 48))
+            penalizacion_cancelacion = int(configuracion.get("cancelacion_penalizacion_pct", 20))
+            penalizacion_no_show = int(configuracion.get("no_show_penalizacion_pct", 30))
+            cargo_salida = Decimal(str(configuracion.get("late_checkout_cargo", 0)))
         except (InvalidOperation, TypeError, ValueError):
-            return False, "El recargo y el descuento deben ser números."
+            return False, "Revise los valores numéricos de las políticas de reserva."
+        if not 0 <= confirmacion <= 720:
+            return False, "El tiempo para confirmar debe estar entre 0 y 720 horas."
+        if not 0 <= horas_cancelacion <= 720:
+            return False, "El límite de cancelación debe estar entre 0 y 720 horas."
+        if not 0 <= penalizacion_cancelacion <= 100 or not 0 <= penalizacion_no_show <= 100:
+            return False, "Las penalizaciones deben estar entre 0 y 100 por ciento."
+        if not cargo_salida.is_finite() or cargo_salida < 0:
+            return False, "El cargo por salida tardía debe ser un monto válido y no negativo."
 
-        if not factor.is_finite() or not (Decimal("1") <= factor <= Decimal("5")):
-            return False, "El recargo de temporada alta debe estar entre 1.00 y 5.00."
-        if not descuento.is_finite() or not (Decimal("0") <= descuento <= Decimal("100")):
-            return False, "El descuento debe estar entre 0 y 100."
+        nombre = str(configuracion.get("hotel_nombre", "")).strip()
+        if not nombre:
+            return False, "El nombre del hotel es obligatorio."
+        for campo in ("hora_checkin", "hora_checkout", "late_checkout_hora"):
+            try:
+                datetime.strptime(str(configuracion.get(campo, "")), "%H:%M")
+            except ValueError:
+                return False, "Las horas deben tener el formato HH:MM."
 
-        inicio = self._texto_o_none(parametros.get("temporada_alta_inicio"))
-        fin = self._texto_o_none(parametros.get("temporada_alta_fin"))
+        moneda = str(configuracion.get("moneda", "NIO"))
+        if moneda not in ("NIO", "USD"):
+            return False, "La moneda seleccionada no es válida."
+        prefijo = str(configuracion.get("comprobante_prefijo", "COMP")).strip().upper()
+        if not re.fullmatch(r"[A-Z0-9]{2,10}", prefijo):
+            return False, "El prefijo del comprobante debe tener de 2 a 10 letras o números."
+        metodos = [
+            metodo for metodo in configuracion.get("metodos_pago", [])
+            if metodo in self.METODOS_PAGO
+        ]
+        if not metodos:
+            return False, "Seleccione al menos un método de pago."
 
-        if (inicio is None) != (fin is None):
-            return False, "La temporada alta necesita fecha de inicio y de fin."
-
-        if inicio is not None:
-            fecha_inicio, error_inicio = self._parsear_fecha(inicio)
-            fecha_fin, error_fin = self._parsear_fecha(fin)
-            if error_inicio or error_fin:
-                return False, "Las fechas de temporada alta no son válidas."
-            if fecha_fin <= fecha_inicio:
-                return False, "El fin de temporada alta debe ser posterior al inicio."
-            inicio, fin = fecha_inicio.isoformat(), fecha_fin.isoformat()
-
-        return self.dao.guardar_configuracion({
-            "dias_anticipacion_max": anticipacion,
-            "noches_minimas": noches_min,
-            "noches_maximas": noches_max,
-            "factor_temporada_alta": str(factor),
-            "descuento_porcentaje": str(descuento),
-            "temporada_alta_inicio": inicio or "",
-            "temporada_alta_fin": fin or "",
-            "dias_aviso_pago": dias_aviso,
-        })
+        pares = {
+            "hotel_nombre": nombre,
+            "hotel_direccion": str(configuracion.get("hotel_direccion", "")).strip(),
+            "hotel_telefono": str(configuracion.get("hotel_telefono", "")).strip(),
+            "hotel_correo": str(configuracion.get("hotel_correo", "")).strip(),
+            "hora_checkin": str(configuracion["hora_checkin"]),
+            "hora_checkout": str(configuracion["hora_checkout"]),
+            "horario_recepcion": str(configuracion.get("horario_recepcion", "")).strip(),
+            "confirmacion_horas": confirmacion,
+            "cancelacion_horas_limite": horas_cancelacion,
+            "cancelacion_penalizacion_pct": penalizacion_cancelacion,
+            "no_show_penalizacion_pct": penalizacion_no_show,
+            "late_checkout_hora": str(configuracion["late_checkout_hora"]),
+            "late_checkout_cargo": str(cargo_salida.quantize(Decimal("0.01"))),
+            "moneda": moneda,
+            "metodos_pago": json.dumps(metodos, ensure_ascii=False),
+            "comprobante_mensaje": str(configuracion.get("comprobante_mensaje", "")).strip(),
+            "comprobante_prefijo": prefijo,
+        }
+        exito, mensaje = self.dao.guardar_configuracion(pares)
+        if exito:
+            self._configuracion_hotel_cache = dict(pares)
+            self._configuracion_hotel_cache["metodos_pago"] = metodos
+            for clave in ("confirmacion_horas", "cancelacion_horas_limite",
+                          "cancelacion_penalizacion_pct", "no_show_penalizacion_pct"):
+                self._configuracion_hotel_cache[clave] = int(pares[clave])
+        return exito, mensaje
 
     def _factor_y_descuento(self, fecha_entrada):
-        """Factor de temporada alta y descuento general aplicables a una entrada."""
-        parametros = self.obtener_parametros()
-        factor = 1.0
-        inicio = parametros["temporada_alta_inicio"]
-        fin = parametros["temporada_alta_fin"]
-        if inicio and fin and inicio <= fecha_entrada <= fin:
-            factor = parametros["factor_temporada_alta"]
-        return factor, parametros["descuento_porcentaje"]
+        """La tarifa configurada por habitación se aplica sin recargos de temporada."""
+        return 1.0, 0.0
+
+    def metodos_pago_disponibles(self):
+        return self.obtener_configuracion_hotel()["metodos_pago"]
+
+    def formato_dinero(self, monto) -> str:
+        moneda = self.obtener_configuracion_hotel()["moneda"]
+        simbolo = "C$" if moneda == "NIO" else "$"
+        return f"{simbolo} {self.formato_monto(monto)}"
 
     @staticmethod
     def _a_entero(valor, defecto):
@@ -223,27 +271,6 @@ class ReservaService:
             return int(str(valor).strip())
         except (TypeError, ValueError):
             return defecto
-
-    @staticmethod
-    def _a_decimal(valor, defecto):
-        try:
-            return float(str(valor).strip())
-        except (TypeError, ValueError):
-            return defecto
-
-    @staticmethod
-    def _a_fecha_opcional(valor):
-        if valor in (None, ""):
-            return None
-        try:
-            return datetime.strptime(str(valor).strip(), "%Y-%m-%d").date()
-        except (TypeError, ValueError):
-            return None
-
-    @staticmethod
-    def _texto_o_none(valor):
-        texto = str(valor).strip() if valor is not None else ""
-        return texto or None
 
     def registrar_estancia(
         self,
@@ -257,14 +284,15 @@ class ReservaService:
         metodo_pago,
         habitacion_id,
         ingreso_inmediato=False,
+        numero_huespedes=1,
     ) -> tuple[bool, str]:
         """Captura los datos del huésped y abre su estancia."""
         empleado_id = self._empleado_de_sesion(usuario_actual)
         if empleado_id is None:
             return False, "No hay una sesión de personal válida para registrar la reserva."
 
-        if metodo_pago not in self.METODOS_PAGO:
-            return False, "El método de pago seleccionado no es válido."
+        if metodo_pago not in self.metodos_pago_disponibles():
+            return False, "El método de pago seleccionado no está habilitado por el hotel."
 
         if not es_noches_valida(noches):
             return False, "La cantidad de noches debe ser un número mayor a cero."
@@ -280,6 +308,13 @@ class ReservaService:
 
         if not es_id_valido(habitacion_id):
             return False, "La habitación seleccionada no es válida."
+
+        try:
+            huespedes = int(str(numero_huespedes).strip())
+        except (TypeError, ValueError):
+            return False, "La cantidad de huéspedes debe ser un número entero válido."
+        if huespedes < 1:
+            return False, "Debe registrarse al menos un huésped."
 
         entrada, error_entrada = self._parsear_fecha(fecha_entrada)
         if error_entrada:
@@ -301,25 +336,6 @@ class ReservaService:
         noches_calculadas = (salida - entrada).days
         if noches_calculadas != int(noches):
             return False, "La cantidad de noches no coincide con el rango de fechas."
-
-        # Parámetros del hotel: antelación máxima y duración permitida de la
-        # estadía. Se leen aquí para que el recepcionista reciba el motivo exacto.
-        parametros = self.obtener_parametros()
-        if not ingreso_inmediato:
-            dias_de_anticipacion = (entrada - datetime.today().date()).days
-            if dias_de_anticipacion > parametros["dias_anticipacion_max"]:
-                return False, (
-                    "La reserva supera la antelación máxima permitida de "
-                    f"{parametros['dias_anticipacion_max']} días."
-                )
-        if noches_calculadas < parametros["noches_minimas"]:
-            return False, (
-                f"La estadía debe ser de al menos {parametros['noches_minimas']} noche(s)."
-            )
-        if noches_calculadas > parametros["noches_maximas"]:
-            return False, (
-                f"La estadía no puede superar {parametros['noches_maximas']} noches."
-            )
 
         # Validación previa del choque de cuentas: si otra reserva o estancia ya
         # pisa estas fechas, se avisa de inmediato. El registro vuelve a validar
@@ -343,6 +359,7 @@ class ReservaService:
             metodo_pago=metodo_pago,
             empleado_id=empleado_id,
             habitacion_id=habitacion_id,
+            numero_huespedes=huespedes,
             ingreso_inmediato=bool(ingreso_inmediato),
             factor_temporada=factor,
             descuento_porcentaje=descuento,
@@ -388,12 +405,15 @@ class ReservaService:
             if saldo > 0:
                 return False, (
                     "No se puede registrar la salida: la cuenta tiene un saldo "
-                    f"pendiente de ${self.formato_monto(saldo)}. Cobre la cuenta antes "
+                    f"pendiente de {self.formato_dinero(saldo)}. Cobre la cuenta antes "
                     "de liberar la habitación."
                 )
 
         return self.dao.registrar_salida(
-            reserva_id=reserva_id, empleado_id=empleado_id, forzar=bool(forzar)
+            reserva_id=reserva_id,
+            empleado_id=empleado_id,
+            forzar=bool(forzar),
+            moneda=self.obtener_configuracion_hotel()["moneda"],
         )
 
     def cancelar_reserva(self, usuario_actual: dict, reserva_id, forzar=False) -> tuple[bool, str]:
@@ -410,8 +430,31 @@ class ReservaService:
         if forzar and not es_administrador(usuario_actual):
             return False, MENSAJE_SOLO_ADMIN
 
+        config = self.obtener_configuracion_hotel()
         return self.dao.cancelar_reserva(
-            reserva_id=reserva_id, empleado_id=empleado_id, permitir_iniciada=bool(forzar)
+            reserva_id=reserva_id,
+            empleado_id=empleado_id,
+            permitir_iniciada=bool(forzar),
+            horas_limite=config["cancelacion_horas_limite"],
+            penalizacion_pct=config["cancelacion_penalizacion_pct"],
+            hora_checkin=config["hora_checkin"],
+            moneda=config["moneda"],
+        )
+
+    def marcar_no_show(self, usuario_actual: dict, reserva_id) -> tuple[bool, str]:
+        empleado_id = self._empleado_de_sesion(usuario_actual)
+        if empleado_id is None:
+            return False, "No hay una sesión de personal válida."
+        if not es_administrador(usuario_actual):
+            return False, MENSAJE_SOLO_ADMIN
+        if not es_id_valido(reserva_id):
+            return False, "La reserva indicada no es válida."
+        config = self.obtener_configuracion_hotel()
+        return self.dao.marcar_no_show(
+            reserva_id=reserva_id,
+            empleado_id=empleado_id,
+            penalizacion_pct=config["no_show_penalizacion_pct"],
+            moneda=config["moneda"],
         )
 
     def reactivar_reserva(self, usuario_actual: dict, reserva_id) -> tuple[bool, str]:
@@ -428,16 +471,15 @@ class ReservaService:
 
     def editar_reserva(self, usuario_actual: dict, reserva_id, fecha_entrada,
                        fecha_salida, habitacion_id) -> tuple[bool, str]:
-        """Corrige las fechas y la habitación de una reserva pendiente (admin).
+        """Corrige las fechas y la habitación de una reserva pendiente.
 
         Vuelve a calcular las noches y el total, y revalida el solape ignorando
-        la propia reserva. No modifica el estado ni los pagos ya registrados.
+        la propia reserva. Solo admite reservas aún pendientes y no modifica los
+        pagos ya registrados.
         """
         empleado_id = self._empleado_de_sesion(usuario_actual)
         if empleado_id is None:
             return False, "No hay una sesión de personal válida."
-        if not es_administrador(usuario_actual):
-            return False, MENSAJE_SOLO_ADMIN
         if not es_id_valido(reserva_id):
             return False, "La reserva indicada no es válida."
         if not es_id_valido(habitacion_id):
@@ -455,13 +497,8 @@ class ReservaService:
             return False, "La fecha de entrada no puede ser anterior a hoy."
 
         noches = (salida - entrada).days
-        parametros = self.obtener_parametros()
-        if noches < parametros["noches_minimas"]:
-            return False, f"La estadía debe ser de al menos {parametros['noches_minimas']} noche(s)."
-        if noches > parametros["noches_maximas"]:
-            return False, f"La estadía no puede superar {parametros['noches_maximas']} noches."
-
         factor, descuento = self._factor_y_descuento(entrada)
+        moneda = self.obtener_configuracion_hotel()["moneda"]
 
         return self.dao.actualizar_reserva(
             reserva_id=reserva_id,
@@ -472,6 +509,7 @@ class ReservaService:
             empleado_id=empleado_id,
             factor_temporada=factor,
             descuento_porcentaje=descuento,
+            moneda=moneda,
         )
 
     def extender_estadia(self, usuario_actual: dict, reserva_id, fecha_salida) -> tuple[bool, str]:
@@ -506,10 +544,6 @@ class ReservaService:
             return False, "La nueva salida debe ser posterior a la actual."
 
         noches = (nueva_salida - entrada).days
-        parametros = self.obtener_parametros()
-        if noches > parametros["noches_maximas"]:
-            return False, f"La estadía no puede superar {parametros['noches_maximas']} noches."
-
         factor, descuento = self._factor_y_descuento(entrada)
 
         return self.dao.extender_estadia(
@@ -518,6 +552,7 @@ class ReservaService:
             empleado_id=empleado_id,
             factor_temporada=factor,
             descuento_porcentaje=descuento,
+            moneda=self.obtener_configuracion_hotel()["moneda"],
         )
 
     def obtener_reservas_pendientes(self):
@@ -720,8 +755,8 @@ class ReservaService:
         if not es_id_valido(reserva_id):
             return False, "La reserva indicada no es válida."
 
-        if metodo_pago not in self.METODOS_PAGO:
-            return False, "El método de pago seleccionado no es válido."
+        if metodo_pago not in self.metodos_pago_disponibles():
+            return False, "El método de pago seleccionado no está habilitado por el hotel."
 
         try:
             monto_decimal = Decimal(str(monto))
@@ -739,7 +774,16 @@ class ReservaService:
             monto=monto_decimal,
             metodo_pago=metodo_pago,
             empleado_id=empleado_id,
+            moneda=self.obtener_configuracion_hotel()["moneda"],
         )
+
+    def generar_comprobante_pago(self, usuario_actual: dict, pago_id):
+        if self._empleado_de_sesion(usuario_actual) is None:
+            return False, "Debe iniciar sesión para generar un comprobante."
+        if not es_id_valido(pago_id):
+            return False, "El pago indicado no es válido."
+        prefijo = self.obtener_configuracion_hotel()["comprobante_prefijo"]
+        return self.dao.crear_comprobante_pago(pago_id, prefijo)
 
     # ------------------------------------------------------------------
     # REPORTES (solo administradores)
@@ -781,6 +825,7 @@ class ReservaService:
             "ingresos": Decimal(str(resumen.get("ingresos", 0) or 0)),
             "reservas": int(resumen.get("reservas", 0) or 0),
             "canceladas_total": int(resumen.get("canceladas", 0) or 0),
+            "no_presentadas_total": int(resumen.get("no_presentadas", 0) or 0),
             "por_dia": por_dia,
             "por_metodo": por_metodo,
             "canceladas": canceladas,
@@ -821,7 +866,8 @@ class ReservaService:
             resumen = totales_por_dia.setdefault(
                 fecha, {"fecha": fecha, "cantidad": 0, "total": Decimal("0.00")}
             )
-            resumen["cantidad"] += 1
+            if pago["metodo_pago"] != "Devolución":
+                resumen["cantidad"] += 1
             resumen["total"] += monto
             metodo = pago["metodo_pago"]
             resumen_metodo = totales_por_metodo.setdefault(
@@ -840,8 +886,11 @@ class ReservaService:
             "por_metodo": self._completar_resumen_metodos(
                 list(totales_por_metodo.values())
             ),
-            "cantidad_pagos": len(pagos),
+            "cantidad_pagos": sum(
+                1 for pago in pagos if pago["metodo_pago"] != "Devolución"
+            ),
             "total": total,
+            "moneda": self.obtener_configuracion_hotel()["moneda"],
         }
 
     def _completar_resumen_metodos(self, filas):
@@ -859,7 +908,7 @@ class ReservaService:
                 metodo,
                 {"metodo_pago": metodo, "cantidad": 0, "total": Decimal("0.00")},
             )
-            for metodo in self.METODOS_PAGO
+            for metodo in (*self.METODOS_PAGO, "Devolución")
         ]
 
     @staticmethod

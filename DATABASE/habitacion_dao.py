@@ -133,7 +133,7 @@ class HabitacionDAO:
         finally:
             self.db.desconectar()
 
-    def alternar_mantenimiento(self, id):
+    def alternar_mantenimiento(self, id, empleado_id=None):
         """Pone la habitación fuera de servicio o la devuelve a operación.
 
         No se puede sacar de servicio una habitación ocupada o reservada para
@@ -184,6 +184,29 @@ class HabitacionDAO:
                 "UPDATE registro_habitacion SET mantenimiento = 1 - mantenimiento WHERE id = %s",
                 (id,),
             )
+            if en_mantenimiento:
+                cursor.execute(
+                    """
+                    UPDATE TareaHabitacion
+                    SET estado = 'Completada', finalizada_en = NOW(),
+                        finalizada_por = %s
+                    WHERE habitacion_id = %s
+                      AND tipo = 'Mantenimiento técnico'
+                      AND estado = 'En proceso'
+                    """,
+                    (empleado_id, id),
+                )
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO TareaHabitacion
+                        (habitacion_id, tipo, turno, fecha_programada,
+                         estado, iniciada_en, iniciada_por)
+                    VALUES (%s, 'Mantenimiento técnico', 'Mantenimiento',
+                            CURDATE(), 'En proceso', NOW(), %s)
+                    """,
+                    (id, empleado_id),
+                )
             conexion.commit()
             cursor.close()
             if en_mantenimiento:
@@ -220,6 +243,12 @@ class HabitacionDAO:
                         AND r.fecha_entrada <= CURDATE()
                         AND r.fecha_salida >= CURDATE()
                     ) THEN 'Reservado'
+                    WHEN EXISTS (
+                        SELECT 1 FROM TareaHabitacion t
+                        WHERE t.habitacion_id = h.id
+                          AND t.tipo = 'Limpieza de salida'
+                          AND t.estado IN ('Pendiente', 'En proceso')
+                    ) THEN 'Pendiente de limpieza'
                     ELSE 'Disponible'
                 END AS estatus,
                 EXISTS (
@@ -286,12 +315,26 @@ class HabitacionDAO:
                     )
                 )
             )
+            AND NOT EXISTS (
+                SELECT 1 FROM TareaHabitacion t
+                WHERE t.habitacion_id = h.id
+                  AND t.tipo = 'Limpieza de salida'
+                  AND t.estado IN ('Pendiente', 'En proceso')
+                  AND t.fecha_programada < %s
+                  AND DATE_ADD(t.fecha_programada, INTERVAL 1 DAY) > %s
+            )
             ORDER BY h.no_habitacion
         """
 
         try:
             cursor = conexion.cursor(dictionary=True)
-            cursor.execute(sql, (fecha_salida, fecha_entrada, fecha_salida, fecha_entrada))
+            cursor.execute(
+                sql,
+                (
+                    fecha_salida, fecha_entrada, fecha_salida, fecha_entrada,
+                    fecha_salida, fecha_entrada,
+                ),
+            )
             habitaciones = cursor.fetchall()
             cursor.close()
             return habitaciones
@@ -301,3 +344,154 @@ class HabitacionDAO:
         finally:
             self.db.desconectar()
 
+    def obtener_tareas_habitacion(self, fecha):
+        """Genera los dos turnos diarios pendientes y devuelve el tablero de tareas."""
+        conexion = self.db.conectar()
+        if not conexion:
+            return []
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                """
+                INSERT IGNORE INTO TareaHabitacion
+                    (habitacion_id, reserva_id, tipo, turno, fecha_programada)
+                SELECT r.habitacion_id, r.id, 'Limpieza diaria', turnos.turno, %s
+                FROM Reserva r
+                CROSS JOIN (
+                    SELECT 'Mañana' AS turno
+                    UNION ALL SELECT 'Tarde'
+                ) turnos
+                WHERE r.estado = 'Iniciada'
+                  AND r.fecha_entrada <= %s
+                  AND r.fecha_salida >= %s
+                """,
+                (fecha, fecha, fecha),
+            )
+            conexion.commit()
+            cursor.execute(
+                """
+                SELECT t.id, t.habitacion_id, t.reserva_id, t.tipo, t.turno,
+                    t.fecha_programada, t.estado, t.iniciada_en, t.finalizada_en,
+                    h.no_habitacion AS habitacion_numero,
+                    COALESCE(r.cliente, '—') AS cliente,
+                    TIMESTAMPDIFF(
+                        MINUTE, t.iniciada_en, COALESCE(t.finalizada_en, NOW())
+                    ) AS duracion_minutos
+                FROM TareaHabitacion t
+                JOIN registro_habitacion h ON h.id = t.habitacion_id
+                LEFT JOIN Reserva r ON r.id = t.reserva_id
+                WHERE (
+                    (t.fecha_programada = %s AND t.estado <> 'Cancelada')
+                    OR (
+                        t.tipo = 'Limpieza de salida'
+                        AND t.estado IN ('Pendiente', 'En proceso')
+                        AND t.fecha_programada < %s
+                    )
+                    OR (
+                        t.tipo = 'Mantenimiento técnico'
+                        AND t.estado = 'En proceso'
+                    )
+                )
+                ORDER BY
+                    CASE t.estado
+                        WHEN 'En proceso' THEN 1
+                        WHEN 'Pendiente' THEN 2
+                        WHEN 'Completada' THEN 3
+                        ELSE 4
+                    END,
+                    t.turno, h.no_habitacion, t.id
+                """,
+                (fecha, fecha),
+            )
+            tareas = cursor.fetchall()
+            cursor.close()
+            return tareas
+        except Error as err:
+            conexion.rollback()
+            print(f"Error al obtener las tareas de habitación: {err}")
+            return []
+        finally:
+            self.db.desconectar()
+
+    def actualizar_tarea_habitacion(self, tarea_id, empleado_id, finalizar=False):
+        """Inicia o completa una tarea y conserva su duración real."""
+        conexion = self.db.conectar()
+        if not conexion:
+            return False, "No hay conexión con el servidor de base de datos."
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT habitacion_id, tipo, estado
+                FROM TareaHabitacion
+                WHERE id = %s
+                FOR UPDATE
+                """,
+                (tarea_id,),
+            )
+            tarea = cursor.fetchone()
+            if not tarea:
+                cursor.close()
+                return False, "La tarea ya no existe."
+            estado_esperado = "En proceso" if finalizar else "Pendiente"
+            if tarea["estado"] != estado_esperado:
+                cursor.close()
+                return False, "La tarea cambió de estado. Actualice la lista."
+
+            if finalizar:
+                cursor.execute(
+                    """
+                    UPDATE TareaHabitacion
+                    SET estado = 'Completada', finalizada_en = NOW(),
+                        finalizada_por = %s
+                    WHERE id = %s AND estado = 'En proceso'
+                    """,
+                    (empleado_id, tarea_id),
+                )
+                if tarea["tipo"] == "Mantenimiento técnico":
+                    cursor.execute(
+                        "UPDATE registro_habitacion SET mantenimiento = 0 WHERE id = %s",
+                        (tarea["habitacion_id"],),
+                    )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE TareaHabitacion
+                    SET estado = 'En proceso', iniciada_en = NOW(),
+                        iniciada_por = %s
+                    WHERE id = %s AND estado = 'Pendiente'
+                    """,
+                    (empleado_id, tarea_id),
+                )
+
+            conexion.commit()
+            cursor.close()
+            return True, "Tarea completada." if finalizar else "Tarea iniciada."
+        except Error as err:
+            conexion.rollback()
+            print(f"Error al actualizar la tarea de habitación: {err}")
+            return False, "No se pudo actualizar la tarea."
+        finally:
+            self.db.desconectar()
+
+    def obtener_tarea_habitacion(self, tarea_id):
+        conexion = self.db.conectar()
+        if not conexion:
+            return None
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT id, tipo, estado FROM TareaHabitacion WHERE id = %s",
+                (tarea_id,),
+            )
+            tarea = cursor.fetchone()
+            cursor.close()
+            return tarea
+        except Error as err:
+            print(f"Error al consultar la tarea de habitación: {err}")
+            return None
+        finally:
+            self.db.desconectar()

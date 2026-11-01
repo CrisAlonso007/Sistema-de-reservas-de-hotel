@@ -1,7 +1,9 @@
 # ui/banner_navegacion.py
+from pathlib import Path
+
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QMenu
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QPixmap
 from utils.stylesheets import ESTILO_BANNER
 
 class BannerNavegacion(QWidget):
@@ -29,21 +31,49 @@ class BannerNavegacion(QWidget):
         layout.setSpacing(6)
 
         # --------------------------------------------------
-        # IDENTIDAD DEL SISTEMA
+        # IDENTIDAD DE MARCA
         # --------------------------------------------------
+        bloque_marca = QHBoxLayout()
+        bloque_marca.setSpacing(9)
+
+        ruta_logo = (
+            Path(__file__).resolve().parents[1]
+            / "recursos"
+            / "iconos-de-la-marca"
+            / "Allogi-logotipo-removebg-preview.png"
+        )
+        logo = QPixmap(str(ruta_logo))
+        if not logo.isNull():
+            logo = logo.copy(85, 85, 286, 290)
+            lbl_marca = QLabel()
+            lbl_marca.setObjectName("bannerMarca")
+            lbl_marca.setFixedSize(36, 36)
+            lbl_marca.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_marca.setAccessibleName("Logotipo de Allogi")
+            lbl_marca.setPixmap(
+                logo.scaled(
+                    32,
+                    32,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+            bloque_marca.addWidget(lbl_marca)
+
         bloque_titulo = QVBoxLayout()
-        bloque_titulo.setSpacing(0)
+        bloque_titulo.setSpacing(1)
 
-        lbl_titulo = QLabel("Sistema de Reservas de Hotel")
-        lbl_titulo.setObjectName("bannerTitulo")
-        bloque_titulo.addWidget(lbl_titulo)
+        self.lbl_titulo = QLabel("Allogi")
+        self.lbl_titulo.setObjectName("bannerTitulo")
+        bloque_titulo.addWidget(self.lbl_titulo)
 
-        lbl_subtitulo = QLabel("Módulo de recepción · uso interno del personal")
-        lbl_subtitulo.setObjectName("bannerSubtitulo")
-        bloque_titulo.addWidget(lbl_subtitulo)
+        self.lbl_subtitulo = QLabel("Sistema de reservas · uso interno del personal")
+        self.lbl_subtitulo.setObjectName("bannerSubtitulo")
+        bloque_titulo.addWidget(self.lbl_subtitulo)
 
-        layout.addLayout(bloque_titulo)
-        layout.addSpacing(30)
+        bloque_marca.addLayout(bloque_titulo)
+        layout.addLayout(bloque_marca)
+        layout.addSpacing(24)
 
         # --------------------------------------------------
         # NAVEGACIÓN PRINCIPAL
@@ -51,6 +81,7 @@ class BannerNavegacion(QWidget):
         self.opciones = [
             ("dashboard", "Inicio", "Resumen de ocupación y llegadas del día."),
             ("catalogo", "Catálogo", "Ver y administrar las habitaciones del hotel."),
+            ("servicios", "Limpieza", "Gestionar turnos de limpieza y mantenimiento."),
             ("pagos_reportes", "Pagos", "Consultar pagos y saldos de reservas."),
         ]
         if self.es_admin:
@@ -137,6 +168,7 @@ class BannerNavegacion(QWidget):
         self.btn_notificaciones.style().unpolish(self.btn_notificaciones)
         self.btn_notificaciones.style().polish(self.btn_notificaciones)
         self.btn_notificaciones.setToolTip(ayuda)
+
 
     @staticmethod
     def _etiqueta_rol(es_admin):

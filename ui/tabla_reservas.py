@@ -24,7 +24,7 @@ class TablaReservas(QWidget):
     """
 
     ocupacion_cambiada = Signal()
-    # El administrador pide editar una reserva: la tabla no conoce el formulario
+    # La tabla no conoce el formulario de edición
     # (ni el catálogo de habitaciones), así que delega en quien la contiene.
     editar_reserva_solicitada = Signal(dict)
 
@@ -32,6 +32,7 @@ class TablaReservas(QWidget):
 
     ENCABEZADOS = {
         "habitacion": "Hab.",
+        "huespedes": "Huéspedes",
         "cliente": "Huésped",
         "documento": "Documento",
         "entrada": "Entrada",
@@ -191,6 +192,9 @@ class TablaReservas(QWidget):
         servicio = self.reserva_service
         if nombre == "habitacion":
             return str(reserva["habitacion_numero"]), None
+        if nombre == "huespedes":
+            cantidad = int(reserva.get("numero_huespedes") or 1)
+            return f"{cantidad} huésped" if cantidad == 1 else f"{cantidad} huéspedes", None
         if nombre == "cliente":
             return reserva["cliente"], None
         if nombre == "documento":
@@ -202,9 +206,9 @@ class TablaReservas(QWidget):
         if nombre == "pago":
             return reserva["metodo_pago"], None
         if nombre == "total":
-            return f"${servicio.formato_monto(reserva['total'])}", None
+            return servicio.formato_dinero(reserva["total"]), None
         if nombre == "saldo":
-            return f"${servicio.formato_monto(reserva.get('saldo', 0))}", self._color_saldo(reserva)
+            return servicio.formato_dinero(reserva.get("saldo", 0)), self._color_saldo(reserva)
         if nombre == "estado":
             return (
                 ReservaService.etiqueta_estado(reserva["estado"]),
@@ -312,10 +316,10 @@ class TablaReservas(QWidget):
             menu = QMenu(btn_mas)
             es_admin = es_administrador(self.usuario_actual)
             acciones_admin = {
-                "Editar reserva",
                 "Forzar salida",
                 "Anular estancia",
                 "Reactivar reserva",
+                "Marcar no-show",
             }
             separador_agregado = False
             for texto, ranura, ayuda, habilitada in secundarias:
@@ -340,10 +344,8 @@ class TablaReservas(QWidget):
         if estado == "Pendiente":
             if reserva["fecha_entrada"] <= date.today():
                 prioridad = ("Marcar como ocupada", "Cancelar reserva", "Editar reserva")
-            elif es_administrador(self.usuario_actual):
-                prioridad = ("Editar reserva", "Cancelar reserva")
             else:
-                prioridad = ("Cancelar reserva",)
+                prioridad = ("Editar reserva", "Cancelar reserva")
         elif estado == "Iniciada":
             prioridad = ("Registrar salida", "Extender estadía")
         else:
@@ -374,9 +376,8 @@ class TablaReservas(QWidget):
         si la cuenta todavía tiene saldo, la propia acción avisa con un mensaje
         en vez de dejar el botón deshabilitado.
 
-        Cuando la sesión es de administrador se suman las acciones excepcionales
-        (editar, forzar salida, anular estancia y reactivar); el servicio vuelve
-        a comprobar el rol, así que la interfaz solo decide qué se ve.
+        La edición está disponible para ambos roles mientras la reserva no haya
+        iniciado. Las acciones excepcionales siguen reservadas al administrador.
         """
         estado = reserva["estado"]
         es_admin = es_administrador(self.usuario_actual)
@@ -396,11 +397,17 @@ class TablaReservas(QWidget):
                 "Anular la reserva y liberar la habitación.",
                 True,
             ))
-            if es_admin:
+            acciones.append((
+                "Editar reserva",
+                self._solicitar_edicion,
+                "Corregir las fechas o la habitación si sigue disponible.",
+                True,
+            ))
+            if es_admin and reserva["fecha_entrada"] < date.today():
                 acciones.append((
-                    "Editar reserva",
-                    self._solicitar_edicion,
-                    "Corregir las fechas o la habitación de la reserva (administrador).",
+                    "Marcar no-show",
+                    self._marcar_no_show,
+                    "Cerrar la reserva como no presentada y aplicar la penalización configurada.",
                     True,
                 ))
         elif estado == "Iniciada":
@@ -449,14 +456,17 @@ class TablaReservas(QWidget):
             return 0.0
 
     def _registrar_checkin(self, reserva):
+        hora = self.reserva_service.obtener_configuracion_hotel()["hora_checkin"]
         if not self._confirmar(
             "Registrar ingreso",
-            f"¿Registrar el ingreso de {reserva['cliente']} en la habitación {reserva['habitacion_numero']}?",
+            f"¿Registrar el ingreso de {reserva['cliente']} en la habitación "
+            f"{reserva['habitacion_numero']}?\n\nHora habitual de check-in: {hora}.",
         ):
             return
         self._ejecutar(self.reserva_service.registrar_checkin, reserva)
 
     def _registrar_salida(self, reserva):
+        config = self.reserva_service.obtener_configuracion_hotel()
         saldo = self._saldo(reserva)
         if saldo > 0:
             QMessageBox.warning(
@@ -464,14 +474,17 @@ class TablaReservas(QWidget):
                 "No se puede registrar la salida",
                 "No se puede marcar la habitación como disponible porque no se "
                 "ha registrado el pago de la cuenta.\n\n"
-                f"Saldo pendiente: ${self.reserva_service.formato_monto(saldo)}.\n"
+                f"Saldo pendiente: {self.reserva_service.formato_dinero(saldo)}.\n"
                 "Cobre la cuenta antes de liberar la habitación.",
             )
             return
 
         if not self._confirmar(
             "Registrar salida",
-            f"¿Registrar la salida de {reserva['cliente']} de la habitación {reserva['habitacion_numero']}?",
+            f"¿Registrar la salida de {reserva['cliente']} de la habitación "
+            f"{reserva['habitacion_numero']}?\n\n"
+            f"Check-out habitual: {config['hora_checkout']}. Late check-out hasta "
+            f"{config['late_checkout_hora']}, sin cargo y sujeto a disponibilidad.",
         ):
             return
         self._ejecutar(self.reserva_service.registrar_salida, reserva)
@@ -488,12 +501,30 @@ class TablaReservas(QWidget):
             self.ocupacion_cambiada.emit()
 
     def _cancelar_reserva(self, reserva):
+        config = self.reserva_service.obtener_configuracion_hotel()
         if not self._confirmar(
             "Cancelar reserva",
-            f"¿Cancelar la reserva de {reserva['cliente']} en la habitación {reserva['habitacion_numero']}?\n\nLas fechas quedarán disponibles.",
+            f"¿Cancelar la reserva de {reserva['cliente']} en la habitación "
+            f"{reserva['habitacion_numero']}?\n\n"
+            f"Con {config['cancelacion_horas_limite']} horas o más antes del "
+            "check-in se devuelve el 100 % de lo pagado. Después se aplica una "
+            f"penalización del {config['cancelacion_penalizacion_pct']} %; "
+            "el reembolso nunca supera el monto abonado.",
         ):
             return
         self._ejecutar(self.reserva_service.cancelar_reserva, reserva)
+
+    def _marcar_no_show(self, reserva):
+        config = self.reserva_service.obtener_configuracion_hotel()
+        if not self._confirmar(
+            "Marcar no-show",
+            f"¿Marcar como no presentada la reserva de {reserva['cliente']}?\n\n"
+            f"Se retendrá hasta el {config['no_show_penalizacion_pct']} % del total "
+            "y se registrará el reembolso correspondiente. Esta acción es exclusiva "
+            "del administrador.",
+        ):
+            return
+        self._ejecutar(self.reserva_service.marcar_no_show, reserva)
 
     def _solicitar_edicion(self, reserva):
         """Delega en la ventana principal la apertura del formulario de edición."""
@@ -505,7 +536,7 @@ class TablaReservas(QWidget):
             "Forzar salida",
             f"¿Liberar la habitación {reserva['habitacion_numero']} aunque la cuenta "
             f"de {reserva['cliente']} quede con un saldo de "
-            f"${self.reserva_service.formato_monto(saldo)}?\n\n"
+            f"{self.reserva_service.formato_dinero(saldo)}?\n\n"
             "Esta salida con deuda es exclusiva del administrador.",
         ):
             return

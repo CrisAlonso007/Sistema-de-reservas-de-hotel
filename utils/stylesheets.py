@@ -18,8 +18,8 @@ def configurar_tema_aplicacion(app):
         QPalette.ColorRole.Button: "#ffffff",
         QPalette.ColorRole.ButtonText: "#1f2d3d",
         QPalette.ColorRole.BrightText: "#b42318",
-        QPalette.ColorRole.Link: "#2f6fb0",
-        QPalette.ColorRole.Highlight: "#d6e6f7",
+        QPalette.ColorRole.Link: "#1d7488",
+        QPalette.ColorRole.Highlight: "#d9eeee",
         QPalette.ColorRole.HighlightedText: "#1f2d3d",
         QPalette.ColorRole.PlaceholderText: "#6b7c8f",
         QPalette.ColorRole.Light: "#ffffff",
@@ -90,16 +90,24 @@ ESTILO_PRECIO_INVALIDO = """
 ESTILO_BANNER = """
     QWidget#bannerContenedor {
         background-color: #1f2d3d;
+        border-bottom: 2px solid #61b7b7;
+    }
+    QLabel#bannerMarca {
+        background-color: #ffffff;
+        border: 1px solid #d5e5e8;
+        border-radius: 8px;
     }
     QLabel#bannerTitulo {
-        color: #ffffff;
-        font-size: 17px;
+        color: #71c2bd;
+        font-size: 18px;
         font-weight: bold;
     }
     QLabel#bannerSubtitulo {
-        color: #9fb3c8;
+        color: #a8bac8;
         font-size: 11px;
     }
+
+    /* Navegacion */
     QPushButton#bannerBoton {
         color: #cfd8e3;
         background-color: transparent;
@@ -113,10 +121,12 @@ ESTILO_BANNER = """
         color: #ffffff;
     }
     QPushButton#bannerBoton:checked {
-        background-color: #2f6fb0;
+        background-color: #1d7488;
         color: #ffffff;
         font-weight: bold;
     }
+
+    /* Sesion y notificaciones */
     QPushButton#bannerUsuario {
         color: #ffffff;
         background-color: #2b3d52;
@@ -204,8 +214,117 @@ ESTILO_PANEL = """
         color: #c0392b;
         font-weight: bold;
     }
+    QLabel#resumenOcupacion {
+        color: #526579;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 2px 4px;
+    }
+    QFrame#seccionOperacion {
+        background-color: #ffffff;
+        border: 1px solid #dfe4ea;
+        border-radius: 12px;
+    }
+    QLabel#operacionTitulo {
+        color: #1f2d3d;
+        font-size: 16px;
+        font-weight: bold;
+    }
+    QTabWidget#operacionTabs::pane {
+        border: none;
+        border-top: 1px solid #e6ebf0;
+        top: -1px;
+    }
+    QTabWidget#operacionTabs QTabBar::tab {
+        color: #617386;
+        background: transparent;
+        border: none;
+        border-bottom: 3px solid transparent;
+        padding: 10px 14px;
+        margin-right: 4px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    QTabWidget#operacionTabs QTabBar::tab:selected {
+        color: #1d7488;
+        border-bottom-color: #1d7488;
+    }
+    QTabWidget#operacionTabs QTabBar::tab:hover:!selected {
+        color: #258a99;
+        background: #f3f8f9;
+    }
+    QScrollArea {
+        background: transparent;
+    }
+    QFrame#operacionCard {
+        background-color: #ffffff;
+        border: 1px solid #e1e7ed;
+        border-left: 4px solid #1d7488;
+        border-radius: 8px;
+    }
+    QFrame#operacionCard:hover {
+        background-color: #f9fbfc;
+        border-color: #c5d6dc;
+        border-left-color: #1d7488;
+    }
+    QLabel#operacionHabitacion {
+        color: #1d7488;
+        font-size: 14px;
+        font-weight: bold;
+    }
+    QLabel#operacionHuesped {
+        color: #1f2d3d;
+        font-size: 14px;
+        font-weight: 600;
+    }
+    QLabel#operacionDetalle {
+        color: #718196;
+        font-size: 11px;
+    }
+    QLabel#operacionSaldo {
+        color: #bd3b32;
+        font-size: 11px;
+        font-weight: bold;
+    }
+    QLabel#operacionCuentaAlDia {
+        color: #2e8b57;
+        font-size: 11px;
+        font-weight: 600;
+    }
+    QLabel#operacionEstadoHoy,
+    QLabel#operacionEstadoAlojado {
+        color: #1d7488;
+        background: #e8f4f6;
+        border-radius: 10px;
+        padding: 4px 9px;
+        font-size: 10px;
+        font-weight: bold;
+    }
+    QLabel#operacionEstadoProximo {
+        color: #53677d;
+        background: #edf1f5;
+        border-radius: 10px;
+        padding: 4px 9px;
+        font-size: 10px;
+        font-weight: bold;
+    }
+    QLabel#operacionEstadoAlerta {
+        color: #a93226;
+        background: #fbeceb;
+        border-radius: 10px;
+        padding: 4px 9px;
+        font-size: 10px;
+        font-weight: bold;
+    }
+    QLabel#operacionVacia {
+        color: #718196;
+        background: #f7f9fb;
+        border: 1px dashed #d5dde5;
+        border-radius: 8px;
+        font-size: 12px;
+    }
     QPushButton#accionPrimaria {
-        background-color: #2f6fb0;
+        background-color: #1d7488;
         color: #ffffff;
         border: none;
         border-radius: 6px;
@@ -214,7 +333,7 @@ ESTILO_PANEL = """
         font-weight: bold;
     }
     QPushButton#accionPrimaria:hover {
-        background-color: #3d82c7;
+        background-color: #258a99;
     }
     QPushButton#accionSecundaria {
         background-color: #ffffff;
@@ -265,7 +384,7 @@ ESTILO_PANEL = """
        (18px por lado) dejaba el boton sin espacio para su texto y lo
        recortaba dentro de la celda. */
     QPushButton#accionTablaPrimaria {
-        background-color: #2f6fb0;
+        background-color: #1d7488;
         color: #ffffff;
         border: none;
         border-radius: 5px;
@@ -274,7 +393,7 @@ ESTILO_PANEL = """
         font-weight: bold;
     }
     QPushButton#accionTablaPrimaria:hover {
-        background-color: #3d82c7;
+        background-color: #258a99;
     }
     QPushButton#accionTablaSecundaria {
         background-color: #ffffff;
@@ -354,7 +473,7 @@ ESTILO_PANEL = """
         font-size: 12px;
     }
     QLineEdit#campoFiltro:focus {
-        border: 1px solid #2f6fb0;
+        border: 1px solid #1d7488;
     }
     QComboBox#campoFiltro {
         background-color: #ffffff;
@@ -373,7 +492,7 @@ ESTILO_PANEL = """
     QComboBox#campoFiltro QAbstractItemView {
         background-color: #ffffff;
         border: 1px solid #c3ccd6;
-        selection-background-color: #d6e6f7;
+        selection-background-color: #d9eeee;
         selection-color: #1f2d3d;
         font-size: 12px;
     }
@@ -386,7 +505,7 @@ ESTILO_TABLA = """
         border-radius: 8px;
         gridline-color: #eceff3;
         font-size: 12px;
-        selection-background-color: #d6e6f7;
+        selection-background-color: #d9eeee;
         selection-color: #1f2d3d;
     }
     QHeaderView::section {
@@ -404,10 +523,12 @@ COLORES_ESTATUS = {
     "Ocupado": "#c0392b",
     "Reservado": "#d68910",
     "Mantenimiento": "#5d6d7e",
+    "Pendiente de limpieza": "#7d5ba6",
     "Pendiente": "#d68910",
     "Iniciada": "#2e9e5b",
     "Finalizada": "#5d6d7e",
     "Cancelada": "#c0392b",
+    "No presentada": "#7d5ba6",
 }
 
 # Colores del estado de la cuenta de una reserva (calculado a partir del saldo).
@@ -447,7 +568,7 @@ ESTILO_NOTIFICACIONES = """
         border-left: 4px solid #d68910;
     }
     QFrame#avisoItemProxima {
-        border-left: 4px solid #2e86c1;
+        border-left: 4px solid #1d7488;
     }
     QLabel#avisoSeccion {
         color: #6b7c8f;
@@ -497,7 +618,7 @@ ESTILO_LOGIN = """
         font-weight: bold;
     }
     QPushButton#loginBoton {
-        background-color: #2f6fb0;
+        background-color: #1d7488;
         color: #ffffff;
         border: none;
         border-radius: 7px;
@@ -506,10 +627,10 @@ ESTILO_LOGIN = """
         font-weight: bold;
     }
     QPushButton#loginBoton:hover {
-        background-color: #3d82c7;
+        background-color: #258a99;
     }
     QPushButton#loginBoton:pressed {
-        background-color: #2a629b;
+        background-color: #185f70;
     }
     QPushButton#loginEnlace {
         background: transparent;

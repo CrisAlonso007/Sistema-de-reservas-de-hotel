@@ -2,7 +2,6 @@
 from DATABASE.usuario_dao import UsuarioDAO
 from utils.seguridad import (
     MENSAJE_SOLO_ADMIN,
-    ROL_RECEPCIONISTA,
     ROLES_VALIDOS,
     es_administrador,
     generar_hash,
@@ -35,52 +34,6 @@ class AutenticacionService:
             return False, "Ingresa un usuario válido y una contraseña de al menos 4 caracteres."
 
         return self.dao.autenticar_personal(usuario, password)
-
-    # ------------------------------------------------------------------
-    # AUTORREGISTRO
-    # ------------------------------------------------------------------
-    def registrar_cuenta(
-        self,
-        username,
-        password,
-        confirmacion,
-        nombre_completo,
-        numero_identificacion,
-        correo_electronico,
-        numero_telefono,
-    ) -> tuple[bool, str]:
-        """Da de alta una cuenta nueva desde la pantalla de acceso.
-
-        El autorregistro siempre crea una cuenta de recepción: si se pudiera
-        elegir el rol, cualquiera podría crear un administrador sin permiso.
-        """
-        usuario = str(username or "").strip()
-        password = str(password or "")
-
-        if not es_usuario_valido(usuario):
-            return False, "El nombre de usuario debe tener 3-20 letras, números o guion bajo."
-        if not es_password_valido(password):
-            return False, "La contraseña debe tener entre 4 y 30 caracteres, sin espacios."
-        if password != str(confirmacion or ""):
-            return False, "Las contraseñas no coinciden."
-        if not validar_nombre_completo(nombre_completo):
-            return False, "El nombre completo no es válido."
-        if not es_identificacion_valida(numero_identificacion):
-            return False, "El número de identificación no es válido."
-        if not es_correo_valido(correo_electronico):
-            return False, "El correo electrónico no es válido."
-        if not validar_telefono(numero_telefono):
-            return False, "El número de teléfono no es válido."
-
-        return self.dao.crear_usuario(
-            username=usuario,
-            passwrd_hash=generar_hash(password),
-            rol=ROL_RECEPCIONISTA,
-            nombre_completo=str(nombre_completo).strip(),
-            numero_identificacion=str(numero_identificacion).strip(),
-            correo_electronico=str(correo_electronico).strip(),
-            numero_telefono=str(numero_telefono).strip(),
-        )
 
     # ------------------------------------------------------------------
     # GESTION DE PERSONAL (solo administradores)

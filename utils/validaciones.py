@@ -305,7 +305,7 @@ def es_noches_valida(valor: str | int) -> bool:
 
     try:
         cantidad = int(str(valor).strip())
-        return 0 < cantidad <= 365
+        return cantidad > 0
     except (TypeError, ValueError):
         return False
 

@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QDateEdit, QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
     QAbstractItemView, QFileDialog,
 )
-from PySide6.QtCore import Qt, QDate
+from PySide6.QtCore import Qt, QDate, Signal
 from pathlib import Path
 from services.reserva_service import ReservaService
 from services.habitacion_service import HabitacionService
@@ -15,6 +15,8 @@ from utils.stylesheets import COLORES_ESTATUS, ESTILO_PANEL, ESTILO_TABLA
 
 class PanelReportes(QWidget):
     """Reportes de ocupación e ingresos del período. Solo administradores."""
+
+    actualizar_solicitado = Signal()
 
     def __init__(self, usuario_actual: dict = None, reserva_service=None,
                  habitacion_service=None, parent=None):
@@ -77,7 +79,7 @@ class PanelReportes(QWidget):
         btn_generar.setObjectName("accionPrimaria")
         btn_generar.setCursor(Qt.PointingHandCursor)
         btn_generar.setFixedHeight(34)
-        btn_generar.clicked.connect(self.refrescar)
+        btn_generar.clicked.connect(self.actualizar_solicitado.emit)
         layout.addWidget(btn_generar)
 
         return contenedor
@@ -90,8 +92,14 @@ class PanelReportes(QWidget):
         self.kpi_ingresos = TarjetaKpi("INGRESOS DEL PERÍODO", COLORES_ESTATUS["Disponible"])
         self.kpi_reservas = TarjetaKpi("RESERVAS DEL PERÍODO", "#2f6fb0")
         self.kpi_canceladas = TarjetaKpi("CANCELADAS DEL PERÍODO", COLORES_ESTATUS["Cancelada"])
+        self.kpi_no_presentadas = TarjetaKpi(
+            "NO-SHOW DEL PERÍODO", COLORES_ESTATUS["No presentada"]
+        )
 
-        for kpi in (self.kpi_ocupacion, self.kpi_ingresos, self.kpi_reservas, self.kpi_canceladas):
+        for kpi in (
+            self.kpi_ocupacion, self.kpi_ingresos, self.kpi_reservas,
+            self.kpi_canceladas, self.kpi_no_presentadas,
+        ):
             layout.addWidget(kpi)
         return layout
 
@@ -182,12 +190,18 @@ class PanelReportes(QWidget):
             return
 
         resumen = self.habitacion_service.obtener_resumen_ocupacion()
+        self.aplicar_datos({"reporte": resultado, "ocupacion": resumen})
+
+    def aplicar_datos(self, datos):
+        resultado = datos["reporte"]
+        resumen = datos["ocupacion"]
         self.kpi_ocupacion.set_valor(f"{resumen['porcentaje_ocupacion']}%")
         self.kpi_ingresos.set_valor(
-            f"${self.reserva_service.formato_monto(resultado['ingresos'])}"
+            self.reserva_service.formato_dinero(resultado["ingresos"])
         )
         self.kpi_reservas.set_valor(resultado["reservas"])
         self.kpi_canceladas.set_valor(resultado["canceladas_total"])
+        self.kpi_no_presentadas.set_valor(resultado["no_presentadas_total"])
 
         self._llenar_ingresos(resultado["por_dia"])
         self._llenar_metodos(resultado["por_metodo"])
@@ -203,7 +217,7 @@ class PanelReportes(QWidget):
             )
             self.tabla_ingresos.setItem(
                 fila, 1,
-                QTableWidgetItem(f"${self.reserva_service.formato_monto(registro['total'])}"),
+                QTableWidgetItem(self.reserva_service.formato_dinero(registro["total"])),
             )
 
     def _llenar_metodos(self, filas):
@@ -214,7 +228,7 @@ class PanelReportes(QWidget):
             valores = [
                 registro["metodo_pago"],
                 str(registro["cantidad"]),
-                f"${self.reserva_service.formato_monto(registro['total'])}",
+                self.reserva_service.formato_dinero(registro["total"]),
             ]
             for columna, valor in enumerate(valores):
                 self.tabla_metodos.setItem(fila, columna, QTableWidgetItem(valor))
@@ -228,7 +242,7 @@ class PanelReportes(QWidget):
                 str(registro["habitacion_numero"]),
                 registro["cliente"],
                 self.reserva_service.formato_fecha(registro["fecha_entrada"]),
-                f"${self.reserva_service.formato_monto(registro['total'])}",
+                self.reserva_service.formato_dinero(registro["total"]),
             ]
             for columna, valor in enumerate(valores):
                 self.tabla_canceladas.setItem(fila, columna, QTableWidgetItem(str(valor)))

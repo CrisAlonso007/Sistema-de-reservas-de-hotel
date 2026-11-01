@@ -49,7 +49,7 @@ class HistorialHuespedesWindow(QWidget):
         self.tabla = TablaReservas(
             usuario_actual=self.usuario_actual,
             reserva_service=self.reserva_service,
-            columnas=["habitacion", "cliente", "documento", "entrada", "salida", "total", "saldo", "estado"],
+            columnas=["habitacion", "huespedes", "cliente", "documento", "entrada", "salida", "total", "saldo", "estado"],
             con_acciones=False,
             con_filtros=True,
             alto=380,

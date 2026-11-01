@@ -36,6 +36,9 @@ class PanelPagosReportes(QWidget):
         """Recarga las cuentas y cobros."""
         self.panel_pagos.refrescar()
 
+    def aplicar_cuentas(self, cuentas):
+        self.panel_pagos.aplicar_cuentas(cuentas)
+
     def buscar(self, texto):
         """Filtra las cuentas por el huésped indicado."""
         self.panel_pagos.buscar(texto)

@@ -5,15 +5,21 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal, QTimer
 from services.autenticacion_service import AutenticacionService
 from services.habitacion_service import HabitacionService
+from services.hilo_carga_panel import HiloCargaPanel
 from services.reserva_service import ReservaService
 from ui.admin_window import AdminWindow
 from ui.banner_navegacion import BannerNavegacion
 from ui.detalle_habitacion import DetalleHabitacionWidget
-from ui.dialogs import DialogoEditarReserva
+from ui.dialogs import (
+    DialogoCobro,
+    DialogoDetalleReserva,
+    DialogoEditarReserva,
+)
 from ui.panel_catalogo import PanelCatalogo
 from ui.panel_dashboard import PanelDashboard
 from ui.panel_pagos_reportes import PanelPagosReportes
 from ui.panel_reportes import PanelReportes
+from ui.panel_servicios_habitacion import PanelServiciosHabitacion
 from ui.ventana_administracion import VentanaAdministracion
 from ui.panel_notificaciones import PanelNotificaciones
 from ui.historial_huespedes import HistorialHuespedesWindow
@@ -40,9 +46,12 @@ class VentanaPrincipal(QMainWindow):
         self.dialogo_registro = None
         self.ventana_historial = None
         self.habitacion_en_detalle = None
+        self._worker_refresco = None
+        self._refresco_pendiente = False
+        self._cerrar_despues_del_refresco = False
         self.popup_notificaciones = PanelNotificaciones(self.reserva_service, self)
 
-        self.setWindowTitle("Sistema de Reservas de Hotel · Recepción")
+        self.setWindowTitle("Allogi · Recepción")
         self.resize(1180, 720)
 
         # --------------------------------------------------
@@ -61,19 +70,33 @@ class VentanaPrincipal(QMainWindow):
             habitacion_service=self.habitacion_service,
             reserva_service=self.reserva_service,
         )
+        self.panel_dashboard.set_hotel_name(
+            self.reserva_service.obtener_configuracion_hotel()["hotel_nombre"]
+        )
         self.panel_dashboard.navegar_a.connect(self._ir_a_panel)
         self.panel_dashboard.registro_solicitado.connect(self._abrir_registro_huesped)
         self.panel_dashboard.historial_solicitado.connect(self._abrir_historial)
         self.panel_dashboard.ocupacion_cambiada.connect(self.refrescar_paneles)
         self.panel_dashboard.editar_reserva_solicitada.connect(self._abrir_editar_reserva)
+        self.panel_dashboard.cobro_solicitado.connect(self._abrir_cobro_dashboard)
+        self.panel_dashboard.detalle_reserva_solicitado.connect(
+            self._abrir_detalle_reserva
+        )
 
         self.panel_catalogo = PanelCatalogo(
             usuario_actual=self.usuario_actual,
             habitacion_service=self.habitacion_service,
+            reserva_service=self.reserva_service,
             al_abrir_detalle=self._abrir_detalle_habitacion,
             al_editar_habitacion=self._abrir_admin_habitacion,
         )
         self.panel_catalogo.catalogo_modificado.connect(self._al_modificar_catalogo)
+
+        self.panel_servicios = PanelServiciosHabitacion(
+            usuario_actual=self.usuario_actual,
+            habitacion_service=self.habitacion_service,
+        )
+        self.panel_servicios.habitaciones_modificadas.connect(self.refrescar_paneles)
 
         self.panel_pagos_y_reportes = PanelPagosReportes(
             usuario_actual=self.usuario_actual,
@@ -94,6 +117,7 @@ class VentanaPrincipal(QMainWindow):
         self.paneles = {
             "dashboard": self.panel_dashboard,
             "catalogo": self.panel_catalogo,
+            "servicios": self.panel_servicios,
             "pagos_reportes": self.panel_pagos_y_reportes,
             self.PANEL_DETALLE: self.vista_detalle,
         }
@@ -106,6 +130,9 @@ class VentanaPrincipal(QMainWindow):
                 reserva_service=self.reserva_service,
                 habitacion_service=self.habitacion_service,
             )
+            self.panel_reportes.actualizar_solicitado.connect(
+                lambda: self._solicitar_carga_panel("reportes")
+            )
             self.paneles["reportes"] = self.panel_reportes
 
             self.panel_administracion = VentanaAdministracion(
@@ -115,6 +142,9 @@ class VentanaPrincipal(QMainWindow):
                 autenticacion_service=self.autenticacion_service,
             )
             self.panel_administracion.catalogo_modificado.connect(self._al_modificar_catalogo)
+            self.panel_administracion.configuracion_modificada.connect(
+                self._actualizar_configuracion_hotel
+            )
             self.paneles["administracion"] = self.panel_administracion
 
         self.stack = QStackedWidget()
@@ -155,27 +185,95 @@ class VentanaPrincipal(QMainWindow):
         else:
             self.banner.set_panel_activo("catalogo")
 
-        # Los paneles de administración se recargan al entrar (no en el refresco
-        # periódico, que borraría un formulario a medio llenar).
-        if clave == "reportes" and self.panel_reportes is not None:
-            self.panel_reportes.refrescar()
-        elif clave == "administracion" and self.panel_administracion is not None:
-            self.panel_administracion.refrescar()
-
         self.refrescar_paneles()
 
     def refrescar_paneles(self):
-        """Mantiene sincronizados los paneles con el estado real de la base de datos."""
-        self.panel_dashboard.refrescar()
-        self.panel_catalogo.refrescar()
-        self.panel_pagos_y_reportes.refrescar()
+        """Solicita la carga del panel visible sin bloquear la interfaz."""
+        panel = self.stack.currentWidget()
+        clave = next(
+            (nombre for nombre, widget in self.paneles.items() if widget is panel),
+            None,
+        )
+        if clave in {"dashboard", "catalogo", "servicios", "pagos_reportes"}:
+            self._solicitar_carga_panel(clave)
+        elif clave == "reportes" and self.panel_reportes is not None:
+            self._solicitar_carga_panel(clave)
+        elif clave == "administracion" and self.panel_administracion is not None:
+            self.panel_administracion.refrescar()
+
         if self.ventana_historial is not None:
             self.ventana_historial.refrescar()
 
+    def _solicitar_carga_panel(self, clave):
+        if self._worker_refresco is not None:
+            self._refresco_pendiente = (
+                self._worker_refresco.clave_panel != clave
+            )
+            return
+
+        parametros = None
+        if clave == "reportes" and self.panel_reportes is not None:
+            parametros = {
+                "fecha_inicio": self.panel_reportes.dt_inicio.date().toString("yyyy-MM-dd"),
+                "fecha_fin": self.panel_reportes.dt_fin.date().toString("yyyy-MM-dd"),
+            }
+        worker = HiloCargaPanel(
+            clave,
+            usuario_actual=self.usuario_actual,
+            parametros=parametros,
+            parent=self,
+        )
+        self._worker_refresco = worker
+        worker.datos_cargados.connect(self._aplicar_datos_panel)
+        worker.error_carga.connect(self._mostrar_error_carga_panel)
+        worker.finished.connect(
+            lambda worker=worker: self._al_terminar_carga_panel(worker)
+        )
+        worker.start()
+
+    def _aplicar_datos_panel(self, clave, datos):
+        if clave == "dashboard":
+            self.panel_dashboard.aplicar_datos(datos)
+        elif clave == "catalogo":
+            self.panel_catalogo.aplicar_habitaciones(datos)
+        elif clave == "servicios":
+            self.panel_servicios.aplicar_tareas(datos)
+        elif clave == "pagos_reportes":
+            self.panel_pagos_y_reportes.aplicar_cuentas(datos)
+        elif clave == "reportes" and self.panel_reportes is not None:
+            self.panel_reportes.aplicar_datos(datos)
+
+    def _mostrar_error_carga_panel(self, clave, mensaje):
+        self.statusBar().showMessage(
+            f"No se pudo actualizar {clave}: {mensaje}",
+            10000,
+        )
+
+    def _al_terminar_carga_panel(self, worker):
+        if self._worker_refresco is worker:
+            self._worker_refresco = None
+        worker.deleteLater()
+
+        if self._cerrar_despues_del_refresco:
+            self._cerrar_despues_del_refresco = False
+            self.close()
+            return
+
+        if self._refresco_pendiente and self.isVisible():
+            self._refresco_pendiente = False
+            self.refrescar_paneles()
+
     def _al_modificar_catalogo(self):
-        """Renueva el tablero y pagos; el catálogo ya se refrescó en su propia señal."""
-        self.panel_dashboard.refrescar()
-        self.panel_pagos_y_reportes.refrescar()
+        """Actualiza el panel visible después de modificar el catálogo."""
+        self.refrescar_paneles()
+
+    def _actualizar_configuracion_hotel(self):
+        config = self.reserva_service.obtener_configuracion_hotel(refrescar=True)
+        self.panel_dashboard.set_hotel_name(config["hotel_nombre"])
+        if self.habitacion_en_detalle:
+            self.vista_detalle.cargar_datos(self.habitacion_en_detalle)
+        if self.panel_reportes is not None:
+            self._solicitar_carga_panel("reportes")
 
     def _refresco_periodico(self):
         """Mantiene la ocupación al día aunque nadie navegue por los paneles."""
@@ -186,12 +284,13 @@ class VentanaPrincipal(QMainWindow):
         # La ficha abierta puede estar recien llenándose: no se toca.
         if self.stack.currentWidget() is self.vista_detalle:
             return
+        if (
+            self.panel_administracion is not None
+            and self.stack.currentWidget() is self.panel_administracion
+        ):
+            return
 
-        try:
-            self.refrescar_paneles()
-        except Exception:
-            # Un fallo puntual de red no debe cerrar la sesión del empleado.
-            pass
+        self.refrescar_paneles()
 
     def _volver_al_catalogo(self):
         self.habitacion_en_detalle = None
@@ -240,6 +339,24 @@ class VentanaPrincipal(QMainWindow):
         QMessageBox.information(self, "Huésped registrado", mensaje)
         self.refrescar_paneles()
 
+    def _abrir_cobro_dashboard(self, reserva):
+        dialogo = DialogoCobro(
+            usuario_actual=self.usuario_actual,
+            reserva_service=self.reserva_service,
+            reserva=reserva,
+            parent=self,
+        )
+        dialogo.pago_registrado.connect(self.refrescar_paneles)
+        dialogo.exec()
+
+    def _abrir_detalle_reserva(self, reserva):
+        dialogo = DialogoDetalleReserva(
+            reserva=reserva,
+            reserva_service=self.reserva_service,
+            parent=self,
+        )
+        dialogo.exec()
+
     def _abrir_admin_habitacion(self, habitacion):
         if not puede_administrar_catalogo(self.usuario_actual):
             return
@@ -248,6 +365,7 @@ class VentanaPrincipal(QMainWindow):
             habitacion_service=self.habitacion_service,
             usuario_actual=self.usuario_actual,
             habitacion_a_editar=habitacion,
+            moneda=self.reserva_service.obtener_configuracion_hotel()["moneda"],
             parent=self,
         )
         self.ventana_admin.guardado.connect(self.refrescar_paneles)
@@ -261,11 +379,11 @@ class VentanaPrincipal(QMainWindow):
         self.ventana_admin = None
 
     # ------------------------------------------------------------------
-    # EDICIÓN DE RESERVAS (solo administrador)
+    # EDICIÓN DE RESERVAS PENDIENTES
     # ------------------------------------------------------------------
     def _abrir_editar_reserva(self, reserva):
         """Abre el formulario de edición de fechas/habitación de una reserva."""
-        if not self.es_admin or not reserva:
+        if not reserva or reserva.get("estado") != "Pendiente":
             return
 
         dialogo = DialogoEditarReserva(
@@ -314,6 +432,13 @@ class VentanaPrincipal(QMainWindow):
     def closeEvent(self, event):
         """Cierra los cuadros secundarios y detiene el refresco antes de destruirlos."""
         self.timer_refresco.stop()
+        if self._worker_refresco is not None and self._worker_refresco.isRunning():
+            self._cerrar_despues_del_refresco = True
+            self.statusBar().showMessage(
+                "Terminando la consulta actual antes de cerrar..."
+            )
+            event.ignore()
+            return
         if self.ventana_admin:
             self.ventana_admin.close()
         if self.ventana_historial:

@@ -1,5 +1,5 @@
 # DATABASE/reserva_dao.py
-from datetime import date
+from datetime import date, datetime, time
 from decimal import Decimal
 
 from DATABASE.conexion import ConexionBD
@@ -19,8 +19,9 @@ class ReservaDAO:
     PRIORIDAD_ESTADOS = {
         "Pendiente": 1,
         "Iniciada": 2,
-        "Cancelada": 3,
-        "Finalizada": 4,
+        "No presentada": 3,
+        "Cancelada": 4,
+        "Finalizada": 5,
     }
 
     def __init__(self):
@@ -55,6 +56,7 @@ class ReservaDAO:
         ingreso_inmediato=False,
         factor_temporada=1.0,
         descuento_porcentaje=0.0,
+        numero_huespedes=1,
     ):
         """Registra una estancia y calcula el total en el servidor.
 
@@ -75,7 +77,8 @@ class ReservaDAO:
 
             # Bloquea la habitación para serializar los intentos de reserva sobre la misma.
             cursor.execute(
-                "SELECT precio, mantenimiento FROM registro_habitacion WHERE id = %s FOR UPDATE",
+                "SELECT precio, capacidad, mantenimiento "
+                "FROM registro_habitacion WHERE id = %s FOR UPDATE",
                 (habitacion_id,),
             )
             habitacion = cursor.fetchone()
@@ -85,6 +88,15 @@ class ReservaDAO:
             if habitacion["mantenimiento"]:
                 cursor.close()
                 return False, "La habitación está en mantenimiento y no admite reservas."
+            if numero_huespedes < 1:
+                cursor.close()
+                return False, "Debe registrarse al menos un huésped."
+            if numero_huespedes > habitacion["capacidad"]:
+                cursor.close()
+                return False, (
+                    f"La habitación admite hasta {habitacion['capacidad']} "
+                    f"huésped(es); no puede alojar a {numero_huespedes}."
+                )
 
             # Una sola regla de solape para toda la aplicación: la reserva
             # «Pendiente» ocupa un tramo semiabierto [entrada, salida), y una
@@ -99,6 +111,11 @@ class ReservaDAO:
                 )
             if estado_choque is not None:
                 cursor.close()
+                if estado_choque == "Limpieza":
+                    return False, (
+                        "La habitación aún tiene pendiente una limpieza de salida "
+                        "que coincide con esas fechas."
+                    )
                 return False, "La habitación ya tiene una reserva activa para esas fechas."
 
             total = self._calcular_total(
@@ -112,13 +129,13 @@ class ReservaDAO:
             cursor.execute(
                 """
                 INSERT INTO Reserva
-                (cliente, identificacion, contacto, noches,
+                (cliente, identificacion, contacto, numero_huespedes, noches,
                 fecha_entrada, fecha_salida, metodo_pago, total, estado,
                 habitacion_id, empleado_id, checkin_empleado_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (cliente, identificacion, contacto, int(noches), fecha_entrada,
-                fecha_salida, metodo_pago, total, estado_inicial,
+                (cliente, identificacion, contacto, numero_huespedes, int(noches),
+                fecha_entrada, fecha_salida, metodo_pago, total, estado_inicial,
                 habitacion_id, empleado_id, checkin_empleado_id),
             )
             conexion.commit()
@@ -131,6 +148,78 @@ class ReservaDAO:
             return False, "No se pudo registrar la reserva."
         finally:
             self.db.desconectar()
+
+    def marcar_no_show(self, reserva_id, empleado_id, penalizacion_pct=30, moneda="NIO"):
+        """Cierra como no presentada una reserva pasada y registra el reembolso."""
+        conexion = self.db.conectar()
+        if not conexion:
+            return False, "No hay conexión con el servidor de base de datos."
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT estado, fecha_entrada, total, monto_pagado "
+                "FROM Reserva WHERE id = %s FOR UPDATE",
+                (reserva_id,),
+            )
+            reserva = cursor.fetchone()
+            if not reserva:
+                cursor.close()
+                return False, "La reserva no existe."
+            if reserva["estado"] != "Pendiente":
+                cursor.close()
+                return False, "Solo se puede marcar como no presentada una reserva pendiente."
+            if reserva["fecha_entrada"] >= date.today():
+                cursor.close()
+                return False, "El no-show solo se registra después de la fecha de entrada."
+
+            total = Decimal(str(reserva["total"]))
+            pagado = Decimal(str(reserva["monto_pagado"]))
+            porcentaje = Decimal(str(penalizacion_pct)) / Decimal("100")
+            retenido = min((total * porcentaje).quantize(Decimal("0.01")), pagado)
+            devolucion = max(pagado - retenido, Decimal("0.00"))
+            if devolucion:
+                self._registrar_devolucion(
+                    cursor, reserva_id, empleado_id, devolucion,
+                    "Reembolso por no presentación",
+                )
+
+            cursor.execute(
+                """
+                UPDATE Reserva
+                SET estado = 'No presentada', salida_empleado_id = %s,
+                    monto_pagado = monto_pagado - %s
+                WHERE id = %s AND estado = 'Pendiente'
+                """,
+                (empleado_id, devolucion, reserva_id),
+            )
+            if cursor.rowcount != 1:
+                conexion.rollback()
+                cursor.close()
+                return False, "La reserva cambió y no pudo marcarse como no presentada."
+            conexion.commit()
+            cursor.close()
+            return True, (
+                "Reserva marcada como no presentada. "
+                f"Penalización retenida: {self._importe(retenido, moneda)}; "
+                f"reembolso registrado: {self._importe(devolucion, moneda)}."
+            )
+        except Error as err:
+            conexion.rollback()
+            print(f"Error al marcar no-show: {err}")
+            return False, "No se pudo marcar la reserva como no presentada."
+        finally:
+            self.db.desconectar()
+
+    @staticmethod
+    def _registrar_devolucion(cursor, reserva_id, empleado_id, monto, motivo):
+        cursor.execute(
+            """
+            INSERT INTO Devolucion (reserva_id, empleado_id, monto, motivo)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (reserva_id, empleado_id, monto, motivo),
+        )
 
     @staticmethod
     def _calcular_total(precio, noches, factor_temporada=1.0, descuento_porcentaje=0.0):
@@ -179,9 +268,23 @@ class ReservaDAO:
             tuple(valores),
         )
         fila = cursor.fetchone()
-        if not fila:
-            return None
-        return fila["estado"] if isinstance(fila, dict) else fila[0]
+        if fila:
+            return fila["estado"] if isinstance(fila, dict) else fila[0]
+
+        cursor.execute(
+            """
+            SELECT 'Limpieza' AS estado
+            FROM TareaHabitacion t
+            WHERE t.habitacion_id = %s
+              AND t.tipo = 'Limpieza de salida'
+              AND t.estado IN ('Pendiente', 'En proceso')
+              AND t.fecha_programada < %s
+              AND DATE_ADD(t.fecha_programada, INTERVAL 1 DAY) > %s
+            LIMIT 1
+            """,
+            (habitacion_id, fecha_salida, fecha_entrada),
+        )
+        return "Limpieza" if cursor.fetchone() else None
 
     def existe_choque(self, habitacion_id, fecha_entrada, fecha_salida, excluir_reserva_id=None):
         """Comprueba si la habitación ya está comprometida en ese tramo.
@@ -218,7 +321,8 @@ class ReservaDAO:
             cursor = conexion.cursor(dictionary=True)
             cursor.execute(
                 """
-                SELECT r.id, r.habitacion_id, r.fecha_entrada, r.estado, h.no_habitacion, h.mantenimiento
+                SELECT r.id, r.habitacion_id, r.fecha_entrada, r.fecha_salida,
+                    r.estado, h.no_habitacion, h.mantenimiento
                 FROM Reserva r
                 JOIN registro_habitacion h ON h.id = r.habitacion_id
                 WHERE r.id = %s
@@ -239,22 +343,55 @@ class ReservaDAO:
             if reserva["fecha_entrada"] > date.today():
                 cursor.close()
                 return False, "La fecha de entrada de la reserva aún no llega."
+            if reserva["fecha_salida"] <= date.today():
+                cursor.close()
+                return False, (
+                    "La fecha de salida de la reserva ya llegó. Un administrador "
+                    "debe corregir las fechas antes de registrar el ingreso."
+                )
+
+            choque = self._buscar_choque(
+                cursor,
+                reserva["habitacion_id"],
+                reserva["fecha_entrada"],
+                reserva["fecha_salida"],
+                excluir_reserva_id=reserva_id,
+            )
+            if choque == "Iniciada":
+                cursor.close()
+                return False, (
+                    f"La habitación {reserva['no_habitacion']} tiene otra "
+                    "estancia activa durante esas fechas."
+                )
+            if choque is not None:
+                cursor.close()
+                if choque == "Limpieza":
+                    return False, (
+                        f"La habitación {reserva['no_habitacion']} aún tiene "
+                        "pendiente la limpieza de una salida anterior."
+                    )
+                return False, (
+                    f"La habitación {reserva['no_habitacion']} tiene otra "
+                    "reserva durante esas fechas."
+                )
 
             cursor.execute(
                 """
-                SELECT id FROM Reserva
+                SELECT id FROM TareaHabitacion
                 WHERE habitacion_id = %s
-                AND id <> %s
-                AND estado = 'Iniciada'
-                AND fecha_entrada <= CURDATE()
+                  AND tipo = 'Limpieza de salida'
+                  AND estado IN ('Pendiente', 'En proceso')
                 LIMIT 1
                 """,
-                (reserva["habitacion_id"], reserva_id),
+                (reserva["habitacion_id"],),
             )
-            ocupada = cursor.fetchone()
-            if ocupada:
+            limpieza_pendiente = cursor.fetchone()
+            if limpieza_pendiente:
                 cursor.close()
-                return False, f"La habitación {reserva['no_habitacion']} ya está ocupada."
+                return False, (
+                    f"La habitación {reserva['no_habitacion']} aún tiene "
+                    "pendiente la limpieza de una salida anterior."
+                )
 
             cursor.execute(
                 "UPDATE Reserva SET estado = 'Iniciada', checkin_empleado_id = %s WHERE id = %s",
@@ -270,7 +407,7 @@ class ReservaDAO:
         finally:
             self.db.desconectar()
 
-    def registrar_salida(self, reserva_id, empleado_id, forzar=False):
+    def registrar_salida(self, reserva_id, empleado_id, forzar=False, moneda="NIO"):
         """Cierra la estancia y libera la habitación.
 
         La habitación no se libera mientras la cuenta tenga saldo pendiente: el
@@ -290,7 +427,8 @@ class ReservaDAO:
         try:
             cursor = conexion.cursor(dictionary=True)
             cursor.execute(
-                "SELECT estado, total, monto_pagado FROM Reserva WHERE id = %s FOR UPDATE",
+                "SELECT estado, total, monto_pagado, habitacion_id "
+                "FROM Reserva WHERE id = %s FOR UPDATE",
                 (reserva_id,),
             )
             reserva = cursor.fetchone()
@@ -306,10 +444,18 @@ class ReservaDAO:
                 cursor.close()
                 return False, (
                     "No se puede registrar la salida: la cuenta tiene un saldo "
-                    f"pendiente de ${saldo:,.2f}. Cobre la cuenta antes de liberar "
+                    f"pendiente de {self._importe(saldo, moneda)}. Cobre la cuenta antes de liberar "
                     "la habitación."
                 )
 
+            cursor.execute(
+                "SELECT id FROM registro_habitacion WHERE id = %s FOR UPDATE",
+                (reserva["habitacion_id"],),
+            )
+            habitacion = cursor.fetchone()
+            if not habitacion:
+                cursor.close()
+                return False, "No se encontró la habitación de la reserva."
             cursor.execute(
                 """
                 UPDATE Reserva
@@ -318,14 +464,20 @@ class ReservaDAO:
                 """,
                 (empleado_id, reserva_id),
             )
+            self._crear_tarea_limpieza_salida(
+                cursor, reserva_id, reserva["habitacion_id"]
+            )
             conexion.commit()
             cursor.close()
             if saldo > 0:
                 return True, (
                     "Salida registrada con saldo pendiente de "
-                    f"${saldo:,.2f}. La habitación quedó disponible."
+                    f"{self._importe(saldo, moneda)}. La habitación quedó pendiente de limpieza."
                 )
-            return True, "Salida registrada correctamente."
+            return True, (
+                "Salida registrada. La habitación quedó pendiente de limpieza "
+                "y no estará disponible hasta que termine el servicio."
+            )
         except Error as err:
             conexion.rollback()
             print(f"Error al registrar la salida: {err}")
@@ -333,7 +485,10 @@ class ReservaDAO:
         finally:
             self.db.desconectar()
 
-    def cancelar_reserva(self, reserva_id, empleado_id, permitir_iniciada=False):
+    def cancelar_reserva(
+        self, reserva_id, empleado_id, permitir_iniciada=False,
+        horas_limite=48, penalizacion_pct=20, hora_checkin="14:00", moneda="NIO",
+    ):
         """Libera las fechas de una reserva que aún no inició la estancia.
 
         `permitir_iniciada` habilita la anulación administrativa de una estancia
@@ -344,30 +499,116 @@ class ReservaDAO:
         if not conexion:
             return False, "No hay conexión con el servidor de base de datos."
 
-        estados = ("Pendiente", "Iniciada") if permitir_iniciada else ("Pendiente",)
-
         try:
-            cursor = conexion.cursor()
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT estado, habitacion_id, fecha_entrada, total, monto_pagado "
+                "FROM Reserva WHERE id = %s FOR UPDATE",
+                (reserva_id,),
+            )
+            reserva = cursor.fetchone()
+            if not reserva:
+                cursor.close()
+                return False, "No se encontró la reserva."
+            estados = ("Pendiente", "Iniciada") if permitir_iniciada else ("Pendiente",)
+            if reserva["estado"] not in estados:
+                cursor.close()
+                return False, "Solo se pueden cancelar reservas pendientes."
+
+            if reserva["estado"] == "Iniciada":
+                cursor.execute(
+                    "SELECT id FROM registro_habitacion WHERE id = %s FOR UPDATE",
+                    (reserva["habitacion_id"],),
+                )
+                habitacion = cursor.fetchone()
+                if not habitacion:
+                    cursor.close()
+                    return False, "No se encontró la habitación de la reserva."
+
+            devolucion = Decimal("0.00")
+            retenido = Decimal("0.00")
+            if reserva["estado"] == "Pendiente":
+                try:
+                    hora = time.fromisoformat(str(hora_checkin))
+                except ValueError:
+                    cursor.close()
+                    return False, "La hora de check-in configurada no es válida."
+                entrada = datetime.combine(reserva["fecha_entrada"], hora)
+                horas_restantes = Decimal(str((entrada - datetime.now()).total_seconds())) / Decimal("3600")
+                if horas_restantes >= Decimal(str(horas_limite)):
+                    porcentaje = Decimal("0")
+                else:
+                    porcentaje = Decimal(str(penalizacion_pct)) / Decimal("100")
+                total = Decimal(str(reserva["total"]))
+                pagado = Decimal(str(reserva["monto_pagado"]))
+                retenido = min((total * porcentaje).quantize(Decimal("0.01")), pagado)
+                devolucion = max(pagado - retenido, Decimal("0.00"))
+                if devolucion:
+                    self._registrar_devolucion(
+                        cursor, reserva_id, empleado_id, devolucion,
+                        "Reembolso por cancelación de reserva",
+                    )
+
             cursor.execute(
                 f"""
                 UPDATE Reserva
-                SET estado = 'Cancelada', salida_empleado_id = %s
+                SET estado = 'Cancelada', salida_empleado_id = %s,
+                    monto_pagado = monto_pagado - %s
                 WHERE id = %s AND estado IN ({", ".join(["%s"] * len(estados))})
                 """,
-                (empleado_id, reserva_id, *estados),
+                (empleado_id, devolucion, reserva_id, *estados),
             )
-            conexion.commit()
             afectadas = cursor.rowcount
-            cursor.close()
             if afectadas == 0:
+                conexion.rollback()
+                cursor.close()
                 return False, "Solo se pueden cancelar reservas pendientes."
-            return True, "Reserva cancelada correctamente."
+            if reserva["estado"] == "Iniciada":
+                self._crear_tarea_limpieza_salida(
+                    cursor, reserva_id, reserva["habitacion_id"]
+                )
+            cursor.close()
+            conexion.commit()
+            mensaje = "Reserva cancelada correctamente."
+            if reserva["estado"] == "Pendiente":
+                mensaje += (
+                    f" Penalización retenida: {self._importe(retenido, moneda)}; "
+                    f"reembolso registrado: {self._importe(devolucion, moneda)}."
+                )
+            if reserva["estado"] == "Iniciada":
+                mensaje += " La habitación quedó pendiente de limpieza."
+            return True, mensaje
         except Error as err:
             conexion.rollback()
             print(f"Error al cancelar la reserva: {err}")
             return False, "No se pudo cancelar la reserva."
         finally:
             self.db.desconectar()
+
+    @staticmethod
+    def _crear_tarea_limpieza_salida(cursor, reserva_id, habitacion_id):
+        cursor.execute(
+            """
+            UPDATE TareaHabitacion
+            SET finalizada_en = CASE
+                    WHEN estado = 'En proceso' THEN NOW()
+                    ELSE finalizada_en
+                END,
+                estado = 'Cancelada'
+            WHERE reserva_id = %s
+              AND tipo = 'Limpieza diaria'
+              AND estado IN ('Pendiente', 'En proceso')
+            """,
+            (reserva_id,),
+        )
+        cursor.execute(
+            """
+            INSERT IGNORE INTO TareaHabitacion
+                (habitacion_id, reserva_id, tipo, turno, fecha_programada)
+            VALUES (%s, %s, 'Limpieza de salida', 'Salida', CURDATE())
+            """,
+            (habitacion_id, reserva_id),
+        )
 
     def reactivar_reserva(self, reserva_id, empleado_id):
         """Devuelve una reserva cancelada al estado Pendiente.
@@ -404,6 +645,11 @@ class ReservaDAO:
             )
             if choque is not None:
                 cursor.close()
+                if choque == "Limpieza":
+                    return False, (
+                        "No se puede reactivar: la habitación tiene pendiente "
+                        "una limpieza de salida para esas fechas."
+                    )
                 return False, (
                     "No se puede reactivar: la habitación ya está comprometida "
                     "para esas fechas."
@@ -425,7 +671,8 @@ class ReservaDAO:
 
     def actualizar_reserva(self, reserva_id, fecha_entrada, fecha_salida, noches,
                            habitacion_id, empleado_id,
-                           factor_temporada=1.0, descuento_porcentaje=0.0):
+                           factor_temporada=1.0, descuento_porcentaje=0.0,
+                           moneda="NIO"):
         """Modifica las fechas y la habitación de una reserva pendiente.
 
         Es una corrección administrativa: vuelve a validar el solape ignorando
@@ -439,7 +686,8 @@ class ReservaDAO:
         try:
             cursor = conexion.cursor(dictionary=True)
             cursor.execute(
-                "SELECT estado FROM Reserva WHERE id = %s FOR UPDATE",
+                "SELECT estado, monto_pagado, numero_huespedes "
+                "FROM Reserva WHERE id = %s FOR UPDATE",
                 (reserva_id,),
             )
             reserva = cursor.fetchone()
@@ -451,7 +699,8 @@ class ReservaDAO:
                 return False, "Solo se pueden editar reservas pendientes de ingreso."
 
             cursor.execute(
-                "SELECT precio, mantenimiento FROM registro_habitacion WHERE id = %s FOR UPDATE",
+                "SELECT precio, capacidad, mantenimiento "
+                "FROM registro_habitacion WHERE id = %s FOR UPDATE",
                 (habitacion_id,),
             )
             habitacion = cursor.fetchone()
@@ -461,6 +710,12 @@ class ReservaDAO:
             if habitacion["mantenimiento"]:
                 cursor.close()
                 return False, "La habitación está en mantenimiento y no admite reservas."
+            if reserva["numero_huespedes"] > habitacion["capacidad"]:
+                cursor.close()
+                return False, (
+                    f"La habitación seleccionada admite hasta {habitacion['capacidad']} "
+                    f"huésped(es), pero la reserva tiene {reserva['numero_huespedes']}."
+                )
 
             choque = self._buscar_choque(
                 cursor, habitacion_id, fecha_entrada, fecha_salida,
@@ -471,11 +726,24 @@ class ReservaDAO:
                 return False, "La habitación sigue ocupada por un huésped que aún no registra su salida."
             if choque is not None:
                 cursor.close()
+                if choque == "Limpieza":
+                    return False, (
+                        "La habitación tiene pendiente una limpieza de salida "
+                        "para esas fechas."
+                    )
                 return False, "La habitación ya tiene una reserva activa para esas fechas."
 
             total = self._calcular_total(
                 habitacion["precio"], noches, factor_temporada, descuento_porcentaje
             )
+            monto_pagado = Decimal(str(reserva["monto_pagado"] or 0))
+            if total < monto_pagado:
+                cursor.close()
+                return False, (
+                    f"El nuevo total ({self._importe(total, moneda)}) sería inferior a lo ya "
+                    f"pagado ({self._importe(monto_pagado, moneda)}). Ajuste la reserva sin "
+                    "reducir el total por debajo de lo cobrado."
+                )
 
             cursor.execute(
                 """
@@ -529,7 +797,8 @@ class ReservaDAO:
             self.db.desconectar()
 
     def extender_estadia(self, reserva_id, nueva_salida, empleado_id,
-                         factor_temporada=1.0, descuento_porcentaje=0.0):
+                         factor_temporada=1.0, descuento_porcentaje=0.0,
+                         moneda="NIO"):
         """Alarga la salida de una estancia en curso y recalcula el total.
 
         Solo aplica a reservas ``Iniciada``. Revalida el solape en el tramo que
@@ -545,7 +814,7 @@ class ReservaDAO:
             cursor = conexion.cursor(dictionary=True)
             cursor.execute(
                 """
-                SELECT estado, fecha_entrada, fecha_salida, habitacion_id
+                SELECT estado, fecha_entrada, fecha_salida, habitacion_id, monto_pagado
                 FROM Reserva
                 WHERE id = %s
                 FOR UPDATE
@@ -586,12 +855,25 @@ class ReservaDAO:
                 return False, "La habitación sigue ocupada por otro huésped."
             if choque is not None:
                 cursor.close()
+                if choque == "Limpieza":
+                    return False, (
+                        "No se puede extender: la habitación tiene pendiente "
+                        "una limpieza de salida para esas fechas."
+                    )
                 return False, "La habitación ya tiene una reserva para las fechas de la extensión."
 
             noches = (nueva_salida - reserva["fecha_entrada"]).days
             total = self._calcular_total(
                 habitacion["precio"], noches, factor_temporada, descuento_porcentaje
             )
+            monto_pagado = Decimal(str(reserva["monto_pagado"] or 0))
+            if total < monto_pagado:
+                cursor.close()
+                return False, (
+                    f"El nuevo total ({self._importe(total, moneda)}) sería inferior a lo ya "
+                    f"pagado ({self._importe(monto_pagado, moneda)}). No se puede extender con "
+                    "un total menor a lo cobrado."
+                )
 
             cursor.execute(
                 """
@@ -605,7 +887,7 @@ class ReservaDAO:
             cursor.close()
             return True, (
                 f"Estadía extendida hasta el {nueva_salida.strftime('%d/%m/%Y')}. "
-                f"Nuevo total: ${total:,.2f}."
+                f"Nuevo total: {self._importe(total, moneda)}."
             )
         except Error as err:
             conexion.rollback()
@@ -658,8 +940,9 @@ class ReservaDAO:
                 prioridad_estado = case(
                     (Reserva.estado == "Pendiente", 1),
                     (Reserva.estado == "Iniciada", 2),
-                    (Reserva.estado == "Cancelada", 3),
-                    (Reserva.estado == "Finalizada", 4),
+                    (Reserva.estado == "No presentada", 3),
+                    (Reserva.estado == "Cancelada", 4),
+                    (Reserva.estado == "Finalizada", 5),
                     else_=99,
                 )
                 consulta = (
@@ -685,6 +968,7 @@ class ReservaDAO:
                         "cliente": reserva.cliente,
                         "identificacion": reserva.identificacion,
                         "contacto": reserva.contacto,
+                        "numero_huespedes": reserva.numero_huespedes,
                         "noches": reserva.noches,
                         "fecha_entrada": reserva.fecha_entrada,
                         "fecha_salida": reserva.fecha_salida,
@@ -734,12 +1018,12 @@ class ReservaDAO:
 
         # `filtro` llega con su propio "AND"; la condición base es la primera
         # del WHERE, así que no lo lleva para no formar "WHERE AND ...".
-        base = "" if incluir_canceladas else "r.estado <> 'Cancelada'"
+        base = "" if incluir_canceladas else "r.estado NOT IN ('Cancelada', 'No presentada')"
         condiciones = " ".join(parte for parte in (base, filtro) if parte)
 
         sql = f"""
             SELECT r.id, r.cliente, r.identificacion, r.contacto,
-                r.noches, r.fecha_entrada, r.fecha_salida, r.metodo_pago, r.total,
+                r.numero_huespedes, r.noches, r.fecha_entrada, r.fecha_salida, r.metodo_pago, r.total,
                 r.monto_pagado, (r.total - r.monto_pagado) AS saldo,
                 r.estado, r.habitacion_id, r.empleado_id, r.creado_en,
                 h.nombre AS habitacion_nombre, h.no_habitacion AS habitacion_numero,
@@ -783,7 +1067,7 @@ class ReservaDAO:
             return None
 
         sql = """
-            SELECT r.id, r.total, r.monto_pagado,
+            SELECT r.id, r.total, r.monto_pagado, r.numero_huespedes,
                 (r.total - r.monto_pagado) AS saldo, r.estado,
                 CASE
                     WHEN r.monto_pagado <= 0 THEN 'Pendiente'
@@ -818,7 +1102,8 @@ class ReservaDAO:
             return []
 
         sql = """
-            SELECT r.id, r.cliente, r.identificacion, r.contacto, r.noches,
+            SELECT r.id, r.cliente, r.identificacion, r.contacto,
+                r.numero_huespedes, r.noches,
                 r.fecha_entrada, r.fecha_salida, r.metodo_pago, r.total,
                 r.monto_pagado, (r.total - r.monto_pagado) AS saldo,
                 r.estado, r.habitacion_id,
@@ -830,7 +1115,7 @@ class ReservaDAO:
                 END AS estado_pago
             FROM Reserva r
             JOIN registro_habitacion h ON h.id = r.habitacion_id
-            WHERE r.estado <> 'Cancelada'
+            WHERE r.estado NOT IN ('Cancelada', 'No presentada')
             ORDER BY
                 CASE WHEN r.monto_pagado >= r.total THEN 1 ELSE 0 END,
                 r.fecha_entrada, h.no_habitacion, r.id
@@ -861,7 +1146,7 @@ class ReservaDAO:
             return []
 
         sql = """
-            SELECT r.id, r.cliente, r.identificacion,
+            SELECT r.id, r.cliente, r.identificacion, r.numero_huespedes,
                 r.noches, r.fecha_entrada, r.fecha_salida, r.total, r.monto_pagado,
                 (r.total - r.monto_pagado) AS saldo,
                 h.no_habitacion AS habitacion_numero, h.nombre AS habitacion_nombre,
@@ -898,7 +1183,7 @@ class ReservaDAO:
             return []
 
         sql = """
-            SELECT r.id, r.cliente, r.identificacion, r.noches,
+            SELECT r.id, r.cliente, r.identificacion, r.numero_huespedes, r.noches,
                 r.fecha_entrada, r.fecha_salida, r.total, r.monto_pagado,
                 (r.total - r.monto_pagado) AS saldo,
                 h.no_habitacion AS habitacion_numero, h.nombre AS habitacion_nombre,
@@ -926,7 +1211,7 @@ class ReservaDAO:
         finally:
             self.db.desconectar()
 
-    def registrar_pago(self, reserva_id, monto, metodo_pago, empleado_id):
+    def registrar_pago(self, reserva_id, monto, metodo_pago, empleado_id, moneda="NIO"):
         """Registra un cobro (total o parcial) y actualiza el saldo de la reserva."""
         conexion = self.db.conectar()
         if not conexion:
@@ -942,9 +1227,9 @@ class ReservaDAO:
             if not reserva:
                 cursor.close()
                 return False, "La reserva no existe."
-            if reserva["estado"] == "Cancelada":
+            if reserva["estado"] in ("Cancelada", "No presentada"):
                 cursor.close()
-                return False, "No se puede cobrar una reserva cancelada."
+                return False, "No se puede cobrar una reserva cancelada o no presentada."
 
             total = Decimal(str(reserva["total"]))
             pagado = Decimal(str(reserva["monto_pagado"]))
@@ -956,7 +1241,7 @@ class ReservaDAO:
                 return False, "El monto a cobrar debe ser mayor a cero."
             if monto > saldo:
                 cursor.close()
-                return False, f"El monto supera el saldo pendiente (${saldo:,.2f})."
+                return False, f"El monto supera el saldo pendiente ({self._importe(saldo, moneda)})."
 
             cursor.execute(
                 """
@@ -976,7 +1261,9 @@ class ReservaDAO:
             nuevo_saldo = total - nuevo_pagado
             if nuevo_saldo <= 0:
                 return True, "Pago registrado. La cuenta quedó saldada."
-            return True, f"Pago registrado. Saldo pendiente: ${nuevo_saldo:,.2f}."
+            return True, (
+                f"Pago registrado. Saldo pendiente: {self._importe(nuevo_saldo, moneda)}."
+            )
         except Error as err:
             conexion.rollback()
             print(f"Error al registrar el pago: {err}")
@@ -984,8 +1271,13 @@ class ReservaDAO:
         finally:
             self.db.desconectar()
 
+    @staticmethod
+    def _importe(monto, moneda):
+        simbolo = "C$" if moneda == "NIO" else "$"
+        return f"{simbolo} {monto:,.2f}"
+
     def obtener_pagos(self, reserva_id):
-        """Historial de cobros de una reserva, del más reciente al más antiguo."""
+        """Historial de cobros y devoluciones de una reserva."""
         conexion = self.db.conectar()
         if not conexion:
             return []
@@ -994,14 +1286,24 @@ class ReservaDAO:
             cursor = conexion.cursor(dictionary=True)
             cursor.execute(
                 """
-                SELECT p.id, p.monto, p.metodo_pago, p.creado_en,
-                    u.nombre_completo AS empleado
-                FROM Pago p
-                JOIN Usuario u ON u.id = p.empleado_id
-                WHERE p.reserva_id = %s
-                ORDER BY p.creado_en DESC, p.id DESC
+                SELECT movimiento.id, movimiento.monto, movimiento.metodo_pago,
+                    movimiento.creado_en, movimiento.empleado
+                FROM (
+                    SELECT p.id, p.monto, p.metodo_pago, p.creado_en,
+                        u.nombre_completo AS empleado
+                    FROM Pago p
+                    JOIN Usuario u ON u.id = p.empleado_id
+                    WHERE p.reserva_id = %s
+                    UNION ALL
+                    SELECT -d.id AS id, -d.monto AS monto, 'Devolución' AS metodo_pago,
+                        d.creado_en, u.nombre_completo AS empleado
+                    FROM Devolucion d
+                    JOIN Usuario u ON u.id = d.empleado_id
+                    WHERE d.reserva_id = %s
+                ) AS movimiento
+                ORDER BY movimiento.creado_en DESC, ABS(movimiento.id) DESC
                 """,
-                (reserva_id,),
+                (reserva_id, reserva_id),
             )
             pagos = cursor.fetchall()
             cursor.close()
@@ -1009,6 +1311,87 @@ class ReservaDAO:
         except Error as err:
             print(f"Error al obtener los pagos: {err}")
             return []
+        finally:
+            self.db.desconectar()
+
+    def crear_comprobante_pago(self, pago_id, prefijo="COMP"):
+        """Crea (una sola vez) el número consecutivo y devuelve los datos del recibo."""
+        conexion = self.db.conectar()
+        if not conexion:
+            return False, "No hay conexión con el servidor de base de datos."
+
+        try:
+            cursor = conexion.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT p.id AS pago_id, p.reserva_id, p.monto, p.metodo_pago, p.creado_en,
+                    r.cliente, r.identificacion, r.fecha_entrada, r.fecha_salida,
+                    h.no_habitacion AS habitacion_numero,
+                    u.nombre_completo AS empleado
+                FROM Pago p
+                JOIN Reserva r ON r.id = p.reserva_id
+                JOIN registro_habitacion h ON h.id = r.habitacion_id
+                JOIN Usuario u ON u.id = p.empleado_id
+                WHERE p.id = %s
+                """,
+                (pago_id,),
+            )
+            comprobante = cursor.fetchone()
+            if not comprobante:
+                cursor.close()
+                return False, "El pago ya no existe."
+
+            cursor.execute(
+                "SELECT numero FROM Comprobante WHERE pago_id = %s",
+                (pago_id,),
+            )
+            existente = cursor.fetchone()
+            if existente:
+                numero = existente["numero"]
+            else:
+                cursor.execute(
+                    "SELECT siguiente FROM ControlComprobante WHERE id = 1 FOR UPDATE"
+                )
+                control = cursor.fetchone()
+                if not control:
+                    cursor.close()
+                    return False, "No está inicializado el contador de comprobantes."
+                cursor.execute(
+                    "SELECT numero FROM Comprobante WHERE pago_id = %s",
+                    (pago_id,),
+                )
+                existente = cursor.fetchone()
+                if existente:
+                    numero = existente["numero"]
+                else:
+                    consecutivo = int(control["siguiente"])
+                    numero = f"{prefijo}-{consecutivo:06d}"
+                    cursor.execute(
+                        "INSERT INTO Comprobante (pago_id, numero) VALUES (%s, %s)",
+                        (pago_id, numero),
+                    )
+                    cursor.execute(
+                        "UPDATE ControlComprobante SET siguiente = %s WHERE id = 1",
+                        (consecutivo + 1,),
+                    )
+            conexion.commit()
+            cursor.close()
+
+            configuracion = self.obtener_configuracion()
+            comprobante.update({
+                "numero": numero,
+                "hotel_nombre": configuracion.get("hotel_nombre", "Allogi Hotel"),
+                "hotel_direccion": configuracion.get("hotel_direccion", ""),
+                "hotel_telefono": configuracion.get("hotel_telefono", ""),
+                "hotel_correo": configuracion.get("hotel_correo", ""),
+                "comprobante_mensaje": configuracion.get("comprobante_mensaje", ""),
+                "moneda": configuracion.get("moneda", "NIO"),
+            })
+            return True, comprobante
+        except Error as err:
+            conexion.rollback()
+            print(f"Error al generar comprobante: {err}")
+            return False, "No se pudo generar el comprobante."
         finally:
             self.db.desconectar()
 
@@ -1059,13 +1442,20 @@ class ReservaDAO:
             cursor = conexion.cursor(dictionary=True)
             cursor.execute(
                 """
-                SELECT DATE(creado_en) AS fecha, SUM(monto) AS total
-                FROM Pago
-                WHERE DATE(creado_en) BETWEEN %s AND %s
-                GROUP BY DATE(creado_en)
+                SELECT movimiento.fecha, SUM(movimiento.monto) AS total
+                FROM (
+                    SELECT DATE(creado_en) AS fecha, monto
+                    FROM Pago
+                    WHERE DATE(creado_en) BETWEEN %s AND %s
+                    UNION ALL
+                    SELECT DATE(creado_en) AS fecha, -monto AS monto
+                    FROM Devolucion
+                    WHERE DATE(creado_en) BETWEEN %s AND %s
+                ) AS movimiento
+                GROUP BY movimiento.fecha
                 ORDER BY fecha
                 """,
-                (fecha_inicio, fecha_fin),
+                (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin),
             )
             filas = cursor.fetchall()
             cursor.close()
@@ -1088,14 +1478,20 @@ class ReservaDAO:
                 """
                 SELECT
                     (SELECT COALESCE(SUM(monto), 0) FROM Pago
+                     WHERE DATE(creado_en) BETWEEN %s AND %s)
+                    - (SELECT COALESCE(SUM(monto), 0) FROM Devolucion
                      WHERE DATE(creado_en) BETWEEN %s AND %s) AS ingresos,
                     (SELECT COUNT(*) FROM Reserva
                      WHERE DATE(creado_en) BETWEEN %s AND %s) AS reservas,
                     (SELECT COUNT(*) FROM Reserva
                      WHERE estado = 'Cancelada'
-                     AND DATE(creado_en) BETWEEN %s AND %s) AS canceladas
+                     AND DATE(actualizado_en) BETWEEN %s AND %s) AS canceladas,
+                    (SELECT COUNT(*) FROM Reserva
+                     WHERE estado = 'No presentada'
+                     AND DATE(actualizado_en) BETWEEN %s AND %s) AS no_presentadas
                 """,
-                (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin, fecha_inicio, fecha_fin),
+                (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin,
+                 fecha_inicio, fecha_fin, fecha_inicio, fecha_fin, fecha_inicio, fecha_fin),
             )
             resumen = cursor.fetchone() or {}
             cursor.close()
@@ -1121,7 +1517,7 @@ class ReservaDAO:
                 FROM Reserva r
                 JOIN registro_habitacion h ON h.id = r.habitacion_id
                 WHERE r.estado = 'Cancelada'
-                AND DATE(r.creado_en) BETWEEN %s AND %s
+                AND DATE(r.actualizado_en) BETWEEN %s AND %s
                 ORDER BY r.creado_en DESC, r.id DESC
                 """,
                 (fecha_inicio, fecha_fin),
@@ -1145,18 +1541,34 @@ class ReservaDAO:
             cursor = conexion.cursor(dictionary=True)
             cursor.execute(
                 """
-                SELECT p.id AS pago_id, p.reserva_id, p.creado_en, p.monto,
-                    p.metodo_pago, r.cliente, r.identificacion,
-                    h.no_habitacion AS habitacion_numero,
-                    u.nombre_completo AS empleado_nombre
-                FROM Pago p
-                JOIN Reserva r ON r.id = p.reserva_id
-                JOIN registro_habitacion h ON h.id = r.habitacion_id
-                JOIN Usuario u ON u.id = p.empleado_id
-                WHERE DATE(p.creado_en) BETWEEN %s AND %s
-                ORDER BY p.creado_en, p.id
+                SELECT movimientos.pago_id, movimientos.reserva_id, movimientos.creado_en,
+                    movimientos.monto, movimientos.metodo_pago, movimientos.cliente,
+                    movimientos.identificacion, movimientos.habitacion_numero,
+                    movimientos.empleado_nombre
+                FROM (
+                    SELECT p.id AS pago_id, p.reserva_id, p.creado_en, p.monto,
+                        p.metodo_pago, r.cliente, r.identificacion,
+                        h.no_habitacion AS habitacion_numero,
+                        u.nombre_completo AS empleado_nombre
+                    FROM Pago p
+                    JOIN Reserva r ON r.id = p.reserva_id
+                    JOIN registro_habitacion h ON h.id = r.habitacion_id
+                    JOIN Usuario u ON u.id = p.empleado_id
+                    WHERE DATE(p.creado_en) BETWEEN %s AND %s
+                    UNION ALL
+                    SELECT -d.id AS pago_id, d.reserva_id, d.creado_en, -d.monto,
+                        'Devolución' AS metodo_pago, r.cliente, r.identificacion,
+                        h.no_habitacion AS habitacion_numero,
+                        u.nombre_completo AS empleado_nombre
+                    FROM Devolucion d
+                    JOIN Reserva r ON r.id = d.reserva_id
+                    JOIN registro_habitacion h ON h.id = r.habitacion_id
+                    JOIN Usuario u ON u.id = d.empleado_id
+                    WHERE DATE(d.creado_en) BETWEEN %s AND %s
+                ) AS movimientos
+                ORDER BY movimientos.creado_en, movimientos.pago_id
                 """,
-                (fecha_inicio, fecha_fin),
+                (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin),
             )
             pagos = cursor.fetchall()
             cursor.close()
@@ -1177,13 +1589,21 @@ class ReservaDAO:
             cursor = conexion.cursor(dictionary=True)
             cursor.execute(
                 """
-                SELECT metodo_pago, COUNT(*) AS cantidad, SUM(monto) AS total
-                FROM Pago
-                WHERE DATE(creado_en) BETWEEN %s AND %s
-                GROUP BY metodo_pago
+                SELECT movimiento.metodo_pago, COUNT(*) AS cantidad,
+                    SUM(movimiento.monto) AS total
+                FROM (
+                    SELECT metodo_pago, monto, creado_en
+                    FROM Pago
+                    WHERE DATE(creado_en) BETWEEN %s AND %s
+                    UNION ALL
+                    SELECT 'Devolución' AS metodo_pago, -monto AS monto, creado_en
+                    FROM Devolucion
+                    WHERE DATE(creado_en) BETWEEN %s AND %s
+                ) AS movimiento
+                GROUP BY movimiento.metodo_pago
                 ORDER BY metodo_pago
                 """,
-                (fecha_inicio, fecha_fin),
+                (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin),
             )
             filas = cursor.fetchall()
             cursor.close()

@@ -62,7 +62,6 @@ ACCIONES_EXCLUSIVAS_DE_ADMIN = (
     "editar parámetros del hotel",
     "ajustar tarifas",
     "ver reportes",
-    "editar reserva",
     "forzar salida con deuda",
     "reactivar reserva",
     "cancelar estancia iniciada",

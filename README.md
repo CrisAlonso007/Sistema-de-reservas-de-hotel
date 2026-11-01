@@ -10,10 +10,9 @@ El sistema funciona como una terminal de recepción, no como un portal web:
 - **El huésped no es un usuario.** No tiene cuenta, no se autentica y no accede a la
   aplicación. El recepcionista captura sus datos directamente como atributos de la
   transacción en la tabla `Reserva`.
-- **El acceso es exclusivo del personal.** El administrador da de alta las cuentas
-  desde la interfaz o con el script SQL inicial. Además, la pantalla de acceso ofrece
-  **Crear cuenta**, que da de alta al momento una cuenta que siempre recibe el rol de
-  **recepcionista** (desde ahí no se pueden crear administradores).
+- **El acceso es exclusivo del personal.** Las cuentas se dan de alta por el
+  administrador desde la interfaz o con el script SQL inicial. La pantalla de
+  acceso no permite autorregistrarse.
 - **Trazabilidad.** Cada reserva guarda el `empleado_id` que la registró, el que
   registró el ingreso (`checkin_empleado_id`) y el que registró la salida
   (`salida_empleado_id`).
@@ -25,6 +24,8 @@ El sistema funciona como una terminal de recepción, no como un portal web:
   habitación, y solo `Registrar salida` la devuelve a `Disponible`. Por eso un huésped
   con salida programada para hoy sigue apareciendo en «Huéspedes alojados» y su
   habitación no se ofrece para esa noche: de lo contrario se podría vender dos veces.
+  Después de la salida queda como `Pendiente de limpieza` y solo vuelve a ofrecerse
+  cuando se completa el servicio de salida.
   Quien se pase de los días previstos también sigue bloqueando la habitación, y una
   reserva `Pendiente` nunca se libera sola, porque la habitación sí queda reservada.
 
@@ -66,6 +67,7 @@ ui/
   panel_dashboard.py        Tablero: KPIs, resumen del día y mesas operativas
   panel_catalogo.py         Listado de habitaciones
   panel_pagos_reportes.py   Módulo único «Pagos y reportes» con pestañas por rol
+  panel_servicios_habitacion.py Limpieza diaria y de salida, más mantenimiento técnico
   panel_pagos.py            Pestaña «Cobros»: saldos y estado de cuenta
   panel_reportes.py         Pestaña «Reportes» (solo administrador)
   panel_notificaciones.py   Popup de avisos de cobro y estadías vencidas
@@ -89,6 +91,27 @@ recursos/                   Imagen por defecto de las habitaciones
 1. Instalar dependencias: `pip install -r requirements.txt`
 2. Crear la base de datos ejecutando `DATABASE/BD_Registro.sql` en MySQL 8.0+.
 3. Arrancar con `python main.py`.
+
+### Cargar datos de prueba
+
+Después de crear el esquema, ejecuta `DATABASE/Datos_Prueba.sql` en MySQL
+Workbench para agregar 20 habitaciones, 17 reservas con distintos estados y
+saldos, pagos y tareas de limpieza/mantenimiento. Los nombres son ficticios pero
+realistas; las habitaciones 9001-9020 y documentos `SIM-2026-*` identifican estos
+datos. El script también crea las tablas financieras faltantes en instalaciones
+anteriores, no elimina registros y puede volver a ejecutarse sin duplicar los
+datos de simulación. Las fechas se calculan respecto al día de ejecución.
+
+Algunos escenarios para probar desde la aplicación:
+
+- Recepción: ingresar al huésped de la habitación 9004, registrar cobros a las
+  estancias de las habitaciones 9002 y 9006, cancelar la reserva de la habitación
+  9012 y gestionar las tareas de limpieza.
+- Administración: reactivar la reserva cancelada de la habitación 9011, editar la
+  reserva 9013, forzar la salida de la habitación 9008 y finalizar el mantenimiento
+  de la habitación 9017.
+- Catálogo e informes: revisar habitaciones disponibles, ocupadas, reservadas,
+  pendientes de limpieza y en mantenimiento; consultar historial y reportes.
 
 ### Credenciales iniciales
 
@@ -128,10 +151,10 @@ Se selecciona la ubicación del archivo al exportar.
 
 ## Navegación y permisos
 
-La barra superior ofrece tres destinos comunes a ambos roles: **Inicio**,
-**Catálogo** y **Pagos y reportes**. La campana de avisos y el menú de sesión
-(nombre, rol, **Cerrar sesión**) también están siempre visibles; bajo «Cerrar
-sesión» aparece **Configuración del hotel**, reservado al administrador.
+La barra superior ofrece cuatro destinos comunes a ambos roles: **Inicio**,
+**Catálogo**, **Limpieza** y **Pagos y reportes**. La campana de avisos y el menú de sesión
+(nombre, rol, **Cerrar sesión**) también están siempre visibles. El administrador
+además tiene **Reportes** y **Configuración** en la navegación.
 
 | Acción                        | Recepcionista | Administrador |
 |-------------------------------|:-------------:|:-------------:|
@@ -142,8 +165,9 @@ sesión» aparece **Configuración del hotel**, reservado al administrador.
 | Cancelar reservas             | Sí            | Sí            |
 | Cobrar una estancia           | Sí            | Sí            |
 | Publicar / editar / eliminar habitaciones | No | Sí            |
-| Marcar habitación en mantenimiento | No       | Sí            |
-| Editar fechas / habitación de una reserva | No | Sí        |
+| Gestionar limpieza diaria y de salida | Sí     | Sí            |
+| Marcar / finalizar mantenimiento técnico | No  | Sí            |
+| Editar fechas / habitación de una reserva pendiente | Sí | Sí |
 | Forzar salida con saldo pendiente | No       | Sí            |
 | Reactivar una reserva cancelada | No          | Sí            |
 | Cancelar una estancia ya iniciada | No        | Sí            |
@@ -154,7 +178,8 @@ sesión» aparece **Configuración del hotel**, reservado al administrador.
 Las acciones de ingreso y salida («Marcar como ocupada» y «Registrar salida»)
 aparecen en las mesas del tablero. «Marcar como ocupada» deja claro que solo
 cambia el estado de la reserva: el huésped no se registra ahí, eso ocurre al dar
-de alta la estancia.
+de alta la estancia. El ingreso solo se permite dentro del periodo reservado; si
+la fecha de salida ya llegó, un administrador debe corregir primero las fechas.
 
 ## Registro de huésped
 
@@ -184,6 +209,12 @@ El total nunca se envía desde la interfaz: lo calcula el servidor a partir del
 precio del catálogo, dentro de la misma transacción que valida el solapamiento
 de fechas.
 
+El formulario también registra el número total de huéspedes, incluido el
+huésped principal. El servidor comprueba que no exceda la capacidad máxima de
+la habitación; este dato no modifica la tarifa por noche. Las instalaciones
+existentes agregan el nuevo campo al ejecutar de nuevo `DATABASE/BD_Registro.sql`
+y conservan las reservas anteriores con un huésped por defecto.
+
 ## Ciclo de una estancia
 
 ```
@@ -199,7 +230,8 @@ de fechas.
                                                                │
                                                                ▼
                                                    estado = Finalizada
-                                                   habitacion = Disponible
+                                                   limpieza de salida pendiente
+                                                   al completar: Disponible
 ```
 
 * El **hospedaje inmediato** nace ya en `Iniciada`: el huésped ya está dentro, así que
@@ -258,28 +290,54 @@ El número del botón refleja cuántos avisos hay pendientes. La fecha límite d
 pago se toma en dos pasos: se avisa antes de la llegada y se exige liquidar al
 registrar la salida (el recepcionista) o al forzarla (el administrador).
 
+## Limpieza y mantenimiento de habitaciones
+
+El panel **Limpieza** crea de forma idempotente dos tareas diarias para cada
+huésped alojado: turno de mañana y turno de tarde. El empleado inicia y finaliza
+cada servicio; el sistema guarda las horas reales y calcula su duración.
+Al registrar una salida normal o forzada, se crea una tarea obligatoria de
+limpieza de salida. La habitación aparece como **Pendiente de limpieza** y no se
+ofrece para una reserva que coincida con ese servicio hasta marcar la limpieza
+como terminada. El ingreso también se rechaza mientras quede una limpieza de
+salida anterior pendiente.
+
+El mantenimiento técnico permanece separado: al poner una habitación fuera de
+servicio se registra el inicio, y al habilitarla se cierra la tarea y se guarda
+su duración. Solo un administrador puede terminar esa tarea.
+
+La tabla `TareaHabitacion` se crea al volver a ejecutar
+`DATABASE/BD_Registro.sql` en instalaciones existentes.
+
 ## Configuración del hotel (solo administradores)
 
-Se abre desde el menú de sesión y agrupa dos pestañas en
-`ui/ventana_administracion.py`.
+Se abre desde el menú de sesión. La configuración se organiza en cinco
+apartados: información del hotel, horarios, políticas, pagos e impuestos, y
+comprobantes. Los valores se guardan en la tabla `Configuracion`.
 
-### Parámetros
+* **Información del hotel:** nombre, dirección y contacto. El nombre aparece
+  en un saludo discreto de Inicio; la marca Allogi conserva su identidad propia.
+  El logotipo de Allogi se toma de `recursos/iconos-de-la-marca` y no se cambia
+  desde la configuración del hotel.
+* **Horarios:** check-in, check-out, recepción y límite de late check-out.
+  Se muestran al registrar y cerrar estancias; el late check-out no tiene cargo
+  y depende de la disponibilidad.
+* **Políticas:** las reservas pendientes no vencen automáticamente. La
+  cancelación es gratuita hasta el límite configurado; fuera de ese plazo se
+  retiene el porcentaje indicado. El no-show se marca manualmente por un
+  administrador después de la fecha de entrada y aplica su penalización.
+  Cualquier devolución se registra en `Devolucion`, sin borrar el pago original
+  y sin devolver más de lo que se abonó.
+* **Pagos e impuestos:** permite elegir NIO o USD y habilitar los métodos de
+  pago aceptados. Los precios se definen por habitación; no se agrega impuesto
+  automáticamente.
+* **Comprobantes:** los cobros pueden generar un PDF con los datos del hotel,
+  logo, mensaje al pie y numeración consecutiva (por ejemplo, `COMP-000001`).
 
-Guarda en la tabla `Configuracion` (clave-valor) las reglas que aplica
-`ReservaService.registrar_estancia`:
-
-| Parámetro | Significado |
-|-----------|-------------|
-| `dias_anticipacion_max` | Cuántos días por adelantado se puede reservar |
-| `noches_minimas` / `noches_maximas` | Duración mínima y máxima de una estadía |
-| `temporada_alta_inicio` / `temporada_alta_fin` | Ventana de temporada alta |
-| `factor_temporada_alta` | Multiplicador de precio en temporada alta |
-| `descuento_porcentaje` | Descuento aplicado al total |
-| `dias_aviso_pago` | Días de antelación con que se avisa un cobro pendiente |
-
-El total lo sigue calculando el servidor: aplica el factor de temporada si la
-fecha de entrada cae dentro de la ventana y luego el descuento, redondeando a
-dos decimales. La interfaz nunca envía el precio.
+No existe máximo configurable de noches; el sistema conserva la regla técnica
+de que una estadía tenga al menos una noche. Las tarifas se calculan con el
+precio por noche de la habitación, sin recargo estacional ni descuento general.
+Al actualizar una base existente, vuelva a ejecutar `DATABASE/BD_Registro.sql`
+para crear las tablas de devoluciones/comprobantes y ampliar la configuración.
 
 ### Gestión de personal
 
@@ -289,11 +347,9 @@ contraseñas (`DialogoEmpleado` en `ui/ventana_administracion.py`,
 borra) pero no puede iniciar sesión. El administrador no puede deshabilitar su
 propia cuenta.
 
-El enlace **Crear cuenta** de la pantalla de acceso (en `ui/login_window.py`,
-`DialogoRegistro`) es la vía de autorregistro: crea una cuenta activa con rol
-`recepcionista` a partir de los mismos datos validados que el alta de personal
-(`AutenticacionService.registrar_cuenta`). El rol no es elegible para que nadie
-pueda otorgarse privilegios de administrador.
+Las cuentas nuevas se crean desde **Gestión de personal**, disponible únicamente
+para administradores. Ahí se asigna el rol y las credenciales iniciales; el
+autorregistro desde la pantalla de acceso está deshabilitado.
 
 ### Extender una estadía
 
@@ -310,17 +366,23 @@ el motivo; la salida normal sigue exigiendo la cuenta pagada. Así se cubren las
 dos respuestas reales del hotel: **extender** (cobrando las noches extra) o
 **registrar la salida**.
 
-### Acciones de reserva reservadas al administrador
+### Acciones de reserva pendientes
 
-En las mesas del tablero, el administrador ve acciones adicionales según el
-estado de cada fila:
+En las mesas del tablero, ambos roles pueden editar una reserva pendiente,
+además de las acciones operativas comunes. El sistema vuelve a validar fechas,
+disponibilidad, capacidad y pagos antes de guardar. El administrador tiene estas
+acciones adicionales según el estado de cada fila:
 
 * **Editar reserva** (solo `Pendiente`): cambia fechas y/o habitación y recalcula
   noches y total, revalidando el solapamiento contra las demás reservas
-  (`ui/dialogs.py`).
+  (`ui/dialogs.py`). Si ya hubo pagos, el nuevo total no puede quedar por debajo
+  de lo cobrado; de igual forma, una extensión no puede dejar un excedente pagado.
 * **Forzar salida** (estancia `Iniciada` con saldo): libera la habitación aunque
   la cuenta quede pendiente. El recepcionista solo puede registrar la salida si
   la cuenta está pagada.
 * **Anular estancia** (estancia `Iniciada`): cancela una reserva ya comenzada.
 * **Reactivar reserva** (reserva `Cancelada`): la devuelve a `Pendiente`,
   revalidando que la habitación siga libre.
+* **Marcar no-show** (solo administrador, después de la fecha de entrada):
+  cambia la reserva a `No presentada`, calcula la penalización y registra el
+  reembolso correspondiente en el historial financiero.

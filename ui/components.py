@@ -18,10 +18,11 @@ class TarjetaHabitacion(QWidget):
     ANCHO_BOTON = 116
     ALTO_BOTON = 28
 
-    def __init__(self, habitacion: dict, es_admin: bool = False, parent=None):
+    def __init__(self, habitacion: dict, es_admin: bool = False, parent=None, moneda="NIO"):
         super().__init__(parent)
         self.habitacion = habitacion
         self.es_admin = es_admin
+        self.moneda = moneda
 
         self.setCursor(Qt.PointingHandCursor)
 
@@ -73,7 +74,8 @@ class TarjetaHabitacion(QWidget):
         fila_titulo.addWidget(lbl_estatus)
         fila_titulo.addStretch()
 
-        lbl_precio = QLabel(f"${precio:,.2f} / noche")
+        simbolo = "C$" if self.moneda == "NIO" else "$"
+        lbl_precio = QLabel(f"{simbolo} {precio:,.2f} / noche")
         lbl_precio.setStyleSheet("font-size: 14px; color: #2f6fb0; font-weight: bold; background: transparent;")
         fila_titulo.addWidget(lbl_precio)
 
@@ -195,5 +197,4 @@ class TarjetaKpi(QFrame):
 
     def set_valor(self, valor):
         self.lbl_valor.setText(str(valor))
-
 

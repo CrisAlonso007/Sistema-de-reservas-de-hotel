@@ -32,11 +32,12 @@ class AdminWindow(QWidget):
     guardado = Signal()
 
     def __init__(self, habitacion_service, usuario_actual: dict = None,
-                 habitacion_a_editar: dict = None, parent=None):
+                 habitacion_a_editar: dict = None, moneda="NIO", parent=None):
         super().__init__(parent)
         self.service = habitacion_service
         self.usuario_actual = usuario_actual or {}
         self.habitacion_a_editar = habitacion_a_editar
+        self.moneda = moneda
 
         modo_texto = "Editar Habitación" if self.habitacion_a_editar else "Publicar Nueva Habitación"
         self.setWindowTitle(modo_texto)
@@ -112,7 +113,8 @@ class AdminWindow(QWidget):
         self.txt_precio.setRange(0.01, 10000.00)
         self.txt_precio.setDecimals(2)
         self.txt_precio.setSingleStep(5.00)
-        self.txt_precio.setPrefix("$ ")
+        simbolo = "C$ " if self.moneda == "NIO" else "$ "
+        self.txt_precio.setPrefix(simbolo)
         self.txt_precio.setFixedHeight(32)
         self.txt_precio.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.UpDownArrows)
         self.txt_precio.valueChanged.connect(self._validar_precio)
@@ -128,7 +130,7 @@ class AdminWindow(QWidget):
             ("Nombre:", self.txt_nombre, 0),
             ("N° Habitación:", self.txt_numero, 1),
             ("Tipo:", self.cmb_tipo, 2),
-            ("Precio por noche ($):", self.txt_precio, 3),
+            (f"Precio por noche ({self.moneda}):", self.txt_precio, 3),
             ("Capacidad:", self.txt_capacidad, 4),
         ]
         for etiqueta, campo, fila in campos:
